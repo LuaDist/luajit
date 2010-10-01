@@ -1,0 +1,14 @@
+--- This file is part of LuaDist project
+
+name = "luajit"
+version = "2.0.0-beta2"
+
+desc = "Fast just-in-time (JIT) compiler for the Lua programming language."
+author = "Mike Pall (LuaJIT), Roberto Ierusalimschy, Waldemar Celes, Luiz Henrique de Figueiredo (Lua)"
+license = "MIT/X11"
+url = "http://luajit.org/"
+maintainer = "Peter Drahoš"
+
+provides = {
+	"lua-5.1.4", "luabitop-1.0.1"
+}
