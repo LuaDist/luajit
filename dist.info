@@ -1,0 +1,18 @@
+--- This file is part of LuaDist project
+
+name = "luajit"
+version = "1.1.5"
+
+desc = "LuaJIT is JIT compiler for the Lua language."
+author = "Mike Pall"
+license = "MIT/X11"
+url = "http://www.luajit.org"
+maintainer = "Peter Drahoš"
+
+provides = { 
+    "lua-5.1.4"
+}
+
+conflicts = {
+	"lua"
+}
