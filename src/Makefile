@@ -7,8 +7,8 @@
 # Your platform. See PLATS for possible values.
 PLAT= none
 
-CC= gcc
-CFLAGS= -O3 -fomit-frame-pointer -Wall $(MYCFLAGS) $(COCOCFLAGS) $(JITCFLAGS)
+CC= gcc -m32
+CFLAGS= -O2 -fomit-frame-pointer -Wall $(MYCFLAGS) $(COCOCFLAGS) $(JITCFLAGS)
 AR= ar rcu
 RANLIB= ranlib
 RM= rm -f

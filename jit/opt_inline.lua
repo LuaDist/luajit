@@ -1,7 +1,7 @@
 ----------------------------------------------------------------------------
 -- LuaJIT optimizer add-on module for function inlining.
 --
--- Copyright (C) 2005-2008 Mike Pall. All rights reserved.
+-- Copyright (C) 2005-2010 Mike Pall. All rights reserved.
 -- Released under the MIT/X license. See luajit.h for full copyright notice.
 ----------------------------------------------------------------------------
 -- This is a simple framework for C function signature maps.
@@ -16,7 +16,7 @@
 
 -- Cache some library functions and objects.
 local jit = require("jit")
-assert(jit.version_num == 10105, "LuaJIT core/library version mismatch")
+assert(jit.version_num == 10106, "LuaJIT core/library version mismatch")
 local jutil = require("jit.util")
 local type, rawget, next = type, rawget, next
 local hints, fhints = jutil.hints, jutil.fhints

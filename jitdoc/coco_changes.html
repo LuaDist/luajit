@@ -4,7 +4,7 @@
 <title>Coco Change History</title>
 <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
 <meta name="Author" content="Mike Pall">
-<meta name="Copyright" content="Copyright (C) 2005-2008, Mike Pall">
+<meta name="Copyright" content="Copyright (C) 2005-2010, Mike Pall">
 <meta name="Language" content="en">
 <link rel="stylesheet" type="text/css" href="bluequad.css" media="screen">
 <link rel="stylesheet" type="text/css" href="bluequad-print.css" media="print">
@@ -61,13 +61,22 @@
 <div id="main">
 <p>
 This is a list of changes between the released versions of Coco.
-The current stand-alone release is <strong>Coco&nbsp;1.1.5</strong>.
+The current stand-alone release is <strong>Coco&nbsp;1.1.6</strong>.
 </p>
 <p>
 Please check the
-<a href="http://luajit.org/coco_changes.html"><span class="ext">&raquo;</span>&nbsp;Online Change History</a>
+<a href="http://coco.luajit.org/changes.html"><span class="ext">&raquo;</span>&nbsp;Online Change History</a>
 to see whether newer versions are available.
 </p>
+
+<h2 id="Coco-1.1.6">Coco 1.1.6 &mdash; 2009-09-08</h2>
+<ul>
+<li>Fix compilation of the GCC inline assembler code on x64.
+Now works when compiled as C++ code (reported by Jonathan Sauer)
+or with -fPIC (reported by Jim Pryor).</li>
+<li>Added GCC inline assembler for faster context switching on Sparc.
+Thanks to Takayuki Usui.</li>
+</ul>
 
 <h2 id="Coco-1.1.5">Coco 1.1.5 &mdash; 2008-10-25</h2>
 <ul>
@@ -127,7 +136,7 @@ and is no longer available for download.
 </div>
 <div id="foot">
 <hr class="hide">
-Copyright &copy; 2005-2008 Mike Pall
+Copyright &copy; 2005-2010 Mike Pall
 <span class="noprint">
 &middot;
 <a href="contact.html">Contact</a>

@@ -1,6 +1,6 @@
 /*
 ** Function inlining support for x86 CPUs.
-** Copyright (C) 2005-2008 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2010 Mike Pall. See Copyright Notice in luajit.h
 */
 
 /* ------------------------------------------------------------------------ */
@@ -67,7 +67,7 @@ errdead:
     }
   }
   {
-    unsigned int ndelta = (char *)L->top - (char *)base;
+    ptrdiff_t ndelta = (char *)L->top - (char *)base;
     int nargs = ndelta/sizeof(TValue);  /* Compute nargs. */
     int status;
     if ((char *)co->stack_last-(char *)co->top <= ndelta) {
@@ -308,12 +308,10 @@ static void jit_inline_table(jit_State *J, jit_InlineInfo *ii)
   |  istable arg; jne L_DEOPTIMIZE
   switch (JIT_IH_IDX(ii->hidx)) {
   case JIT_IH_TABLE_INSERT:
-    jit_assert(ii->nargs == 2);
     |  lea TVALUE:eax, BASE[arg]
     |  call &jit_table_insert, L, TVALUE:eax
     break;
   case JIT_IH_TABLE_REMOVE:
-    jit_assert(ii->nargs == 1);
     |  lea TVALUE:eax, BASE[arg]
     |  lea TVALUE:ecx, BASE[res]
     |  call &jit_table_remove, L, TVALUE:eax, TVALUE:ecx

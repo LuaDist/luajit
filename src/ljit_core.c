@@ -1,6 +1,6 @@
 /*
 ** Interface to JIT engine.
-** Copyright (C) 2005-2008 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2010 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #define ljit_core_c
@@ -199,10 +199,8 @@ static int jit_compile(lua_State *L, StkId func, Table *st, int force)
 /* Create the state table and copy the arguments. */
 static Table *jit_createstate(lua_State *L, StkId arg, int nargs)
 {
-  Table *st;
+  Table *st = luaH_new(L, nargs, COMSTATE_PREALLOC);
   int i;
-  luaC_checkGC(L);
-  st = luaH_new(L, nargs, COMSTATE_PREALLOC);
   for (i = 0; i < nargs; i++)
     setobj2t(L, luaH_setnum(L, st, i+1), arg+i);
   return st;

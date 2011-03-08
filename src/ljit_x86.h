@@ -11,7 +11,7 @@
 
 /*
 ** Bytecode to machine code translation for x86 CPUs.
-** Copyright (C) 2005-2008 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2010 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #define DASM_SECTION_CODE	0
@@ -565,7 +565,7 @@ static void jit_checkGC(jit_State *J)
 
 /*
 ** Function inlining support for x86 CPUs.
-** Copyright (C) 2005-2008 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2010 Mike Pall. See Copyright Notice in luajit.h
 */
 
 /* ------------------------------------------------------------------------ */
@@ -623,7 +623,7 @@ errdead:
     }
   }
   {
-    unsigned int ndelta = (char *)L->top - (char *)base;
+    ptrdiff_t ndelta = (char *)L->top - (char *)base;
     int nargs = ndelta/sizeof(TValue);  /* Compute nargs. */
     int status;
     if ((char *)co->stack_last-(char *)co->top <= ndelta) {
@@ -766,11 +766,9 @@ static void jit_inline_table(jit_State *J, jit_InlineInfo *ii)
   dasm_put(Dst, 1250, Dt2([arg].tt));
   switch (JIT_IH_IDX(ii->hidx)) {
   case JIT_IH_TABLE_INSERT:
-    jit_assert(ii->nargs == 2);
     dasm_put(Dst, 1259, Dt2([arg]), (ptrdiff_t)(jit_table_insert));
     break;
   case JIT_IH_TABLE_REMOVE:
-    jit_assert(ii->nargs == 1);
     dasm_put(Dst, 1272, Dt2([arg]), Dt2([res]), (ptrdiff_t)(jit_table_remove));
     if (ii->nresults == -1) {
       ii->xnresults = -1;

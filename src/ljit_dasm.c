@@ -1,6 +1,6 @@
 /*
 ** Wrapper for architecture-specific DynASM encoder.
-** Copyright (C) 2005-2008 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2010 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #define ljit_dasm_c

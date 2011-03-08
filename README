@@ -1,5 +1,10 @@
-README for LuaJIT 1.1.5
+README for LuaJIT 1.1.6
 -----------------------
+
+************************************************************
+* This is only a bugfix release for the LuaJIT 1.1 branch. *
+* LuaJIT 2.0 is available with much improved performance!  *
+************************************************************
 
 LuaJIT is a Just-In-Time (JIT) compiler for the Lua programming language.
 
@@ -8,13 +13,13 @@ LuaJIT is a Just-In-Time (JIT) compiler for the Lua programming language.
   general-purpose, stand-alone language. More information about
   Lua can be found in the docs (see below) or at: http://www.lua.org/
 
-LuaJIT is based on the Lua 5.1.x virtual machine and bytecode
+LuaJIT 1.x is based on the Lua 5.1.x virtual machine and bytecode
 interpreter from lua.org. It compiles bytecode to native x86 (i386+)
 machine code to speed up the execution of Lua programs.
 
 Homepage: http://luajit.org/
 
-LuaJIT is Copyright (C) 2005-2008 Mike Pall. LuaJIT is free
+LuaJIT is Copyright (C) 2005-2010 Mike Pall. LuaJIT is free
 software, released under the MIT/X license.
 
 -----------------------
@@ -34,7 +39,7 @@ The original documentation for Lua has been included for convenience:
 
 -----------------------
 
-LuaJIT 1.1.5 is a heavily modified version of Lua 5.1.4.
+LuaJIT 1.1.6 is a heavily modified version of Lua 5.1.4.
 The unmodified Lua distribution is available at:
 
   http://www.lua.org/ftp/lua-5.1.4.tar.gz
