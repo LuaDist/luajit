@@ -1,26 +1,28 @@
+0  ICON  "..\\etc\\luajit.ico"
+
 1 VERSIONINFO
- FILEVERSION 5,1,4,0
- PRODUCTVERSION 5,1,4,0
+ FILEVERSION 1,1,6,0
+ PRODUCTVERSION 1,1,6,0
 BEGIN
     BLOCK "StringFileInfo"
     BEGIN
         BLOCK "040904b0"
         BEGIN
-            VALUE "Comments", "www.lua.org\0"
-            VALUE "CompanyName", "Lua.org\0"
-            VALUE "FileDescription", "Lua Language Run Time\0"
-            VALUE "FileVersion", "5.1.4\0"
-            VALUE "LegalCopyright", "Copyright © 1994-2009 Lua.org, PUC-Rio.\0"
-            VALUE "OriginalFilename", "lua5.1.dll\0"
-            VALUE "ProductName", "Lua - The Programming Language\0"
-            VALUE "ProductVersion", "5.1.4\0"
+            VALUE "Comments", "www.luajit.org\0"
+            VALUE "CompanyName", "luajit.org\0"
+            VALUE "FileDescription", "LuaJIT runtime library\0"
+            VALUE "FileVersion", "1.1.6\0"
+            VALUE "LegalCopyright", "Copyright © Mike Pall.\0"
+            VALUE "OriginalFilename", "luajit.exe\0"
+            VALUE "ProductName", "LuaJIT, JIT copmiler for the LuaLanguage\0"
+            VALUE "ProductVersion", "1.1.6\0"
             VALUE "PrivateBuild", "Built for LuaDist\0"
         END
     END
 END
 
 #ifdef MSVC8
-2 24 "lua_dll8.manifest"
+1 24 "lua_dll8.manifest"
 #elif MSVC9
-2 24 "lua_dll9.manifest"
+1 24 "lua_dll9.manifest"
 #endif
