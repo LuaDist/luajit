@@ -135,11 +135,10 @@ add_executable ( luac ${SRC_LUAC} ${LUAC_RC} )
 target_link_libraries ( luac liblua_static )
 
 ## INSTALL
-install ( TARGETS lua luac liblua RUNTIME DESTINATION ${INSTALL_BIN} LIBRARY DESTINATION ${INSTALL_LIB} ARCHIVE DESTINATION ${INSTALL_LIB} )
-install ( FILES src/lua.h src/lualib.h src/lauxlib.h etc/lua.hpp ${CMAKE_CURRENT_BINARY_DIR}/luaconf.h DESTINATION ${INSTALL_INC} )
-install ( FILES etc/strict.lua DESTINATION ${INSTALL_LMOD} )
-install ( DIRECTORY doc etc DESTINATION ${INSTALL_DATA} )
-INSTALL ( DIRECTORY jitdoc/ DESTINATION ${INSTALL_DOC} )
-install ( FILES README COPYRIGHT DESTINATION ${INSTALL_DATA} )
-
-## TESTS
+install_executable ( lua luac )
+install_library ( liblua )
+install_data ( README COPYRIGHT )
+install_lua_module ( strict etc/strict.lua )
+install_header ( src/lua.h src/lualib.h src/lauxlib.h etc/lua.hpp ${CMAKE_CURRENT_BINARY_DIR}/luaconf.h  )
+install_doc ( doc/ )
+install_foo ( etc/ )
