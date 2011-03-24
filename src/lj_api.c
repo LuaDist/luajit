@@ -500,7 +500,7 @@ LUA_API size_t lua_objlen(lua_State *L, int idx)
   if (tvisstr(o))
     return strV(o)->len;
   else if (tvistab(o))
-    return cast(size_t, lj_tab_len(tabV(o)));
+    return (size_t)lj_tab_len(tabV(o));
   else if (tvisudata(o))
     return udataV(o)->len;
   else if (tvisnumber(o))
@@ -1107,9 +1107,13 @@ LUA_API int lua_yield(lua_State *L, int nresults)
       top[2].fr.tp.ftsz = (int)((char *)(top+3)-(char *)L->base)+FRAME_CONT;
       L->top = L->base = top+3;
     }
+#if LJ_TARGET_X64
+    lj_err_throw(L, LUA_YIELD);
+#else
     L->cframe = NULL;
     L->status = LUA_YIELD;
     lj_vm_unwind_c(cf, LUA_YIELD);
+#endif
   }
   lj_err_msg(L, LJ_ERR_CYIELD);
   return 0;  /* unreachable */
@@ -1129,7 +1133,7 @@ LUA_API int lua_resume(lua_State *L, int nargs)
 
 static TValue *cpparser(lua_State *L, lua_CFunction dummy, void *ud)
 {
-  LexState *ls = cast(LexState *, ud);
+  LexState *ls = (LexState *)ud;
   GCfunc *fn;
   UNUSED(dummy);
   cframe_errfunc(L->cframe) = -1;  /* Inherit error function. */

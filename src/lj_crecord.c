@@ -185,6 +185,8 @@ static TRef crec_ct_ct(jit_State *J, CType *d, CType *s, TRef dp, TRef sp,
 		    (sinfo & CTF_UNSIGNED) ? 0 : IRCONV_SEXT);
     else if (dsize < 8 && ssize == 8)  /* Truncate from 64 bit integer. */
       sp = emitconv(sp, dsize < 4 ? IRT_INT : dt, st, 0);
+    else if (ssize <= 4)
+      sp = lj_opt_narrow_toint(J, sp);
   xstore:
     if (dt == IRT_I64 || dt == IRT_U64) lj_needsplit(J);
     if (dp == 0) return sp;
@@ -355,10 +357,10 @@ static TRef crec_ct_tv(jit_State *J, CType *d, TRef dp, TRef sp, TValue *sval)
   CType *s;
   if (LJ_LIKELY(tref_isinteger(sp))) {
     sid = CTID_INT32;
-    svisnz = (void *)(intptr_t)(numV(sval) != 0);
+    svisnz = (void *)(intptr_t)(tvisint(sval)?(intV(sval)!=0):!tviszero(sval));
   } else if (tref_isnum(sp)) {
     sid = CTID_DOUBLE;
-    svisnz = (void *)(intptr_t)(numV(sval) != 0);
+    svisnz = (void *)(intptr_t)(tvisint(sval)?(intV(sval)!=0):!tviszero(sval));
   } else if (tref_isbool(sp)) {
     sp = lj_ir_kint(J, tref_istrue(sp) ? 1 : 0);
     sid = CTID_BOOL;
@@ -443,16 +445,16 @@ static CTypeID crec_constructor(jit_State *J, GCcdata *cd, TRef tr)
 static TRef crec_reassoc_ofs(jit_State *J, TRef tr, ptrdiff_t *ofsp, MSize sz)
 {
   IRIns *ir = IR(tref_ref(tr));
-  if (LJ_LIKELY(J->flags & JIT_F_OPT_FOLD) &&
-      ir->o == IR_ADD && irref_isk(ir->op2)) {
+  if (LJ_LIKELY(J->flags & JIT_F_OPT_FOLD) && irref_isk(ir->op2) &&
+      (ir->o == IR_ADD || ir->o == IR_ADDOV || ir->o == IR_SUBOV)) {
     IRIns *irk = IR(ir->op2);
-    tr = ir->op1;
-#if LJ_64
-    if (irk->o == IR_KINT64)
-      *ofsp += (ptrdiff_t)ir_kint64(irk)->u64 * sz;
+    ptrdiff_t k;
+    if (LJ_64 && irk->o == IR_KINT64)
+      k = (ptrdiff_t)ir_kint64(irk)->u64 * sz;
     else
-#endif
-      *ofsp += (ptrdiff_t)irk->i * sz;
+      k = (ptrdiff_t)irk->i * sz;
+    if (ir->o == IR_SUBOV) *ofsp -= k; else *ofsp += k;
+    tr = ir->op1;  /* Not a TRef, but the caller doesn't care. */
   }
   return tr;
 }
@@ -477,16 +479,7 @@ void LJ_FASTCALL recff_cdata_index(jit_State *J, RecordFFData *rd)
 
   idx = J->base[1];
   if (tref_isnumber(idx)) {
-    /* The size of a ptrdiff_t is target-specific. */
-#if LJ_64
-    if (tref_isnum(idx))
-      idx = emitconv(idx, IRT_I64, IRT_NUM, IRCONV_TRUNC|IRCONV_ANY);
-    else
-      idx = emitconv(idx, IRT_I64, IRT_INT, IRCONV_SEXT);
-#else
-    if (tref_isnum(idx))
-      idx = emitconv(idx, IRT_INT, IRT_NUM, IRCONV_TRUNC|IRCONV_ANY);
-#endif
+    idx = lj_opt_narrow_cindex(J, idx);
   integer_key:
     if (ctype_ispointer(ct->info)) {
       CTSize sz;
@@ -503,10 +496,17 @@ void LJ_FASTCALL recff_cdata_index(jit_State *J, RecordFFData *rd)
     IRType t;
     if (ctype_isenum(ctk->info)) ctk = ctype_child(cts, ctk);
     if (ctype_isinteger(ctk->info) && (t = crec_ct2irt(ctk)) != IRT_CDATA) {
-      idx = emitir(IRT(IR_ADD, IRT_PTR), idx, lj_ir_kintp(J, sizeof(GCcdata)));
-      idx = emitir(IRT(IR_XLOAD, t), idx, 0);
-      if (!LJ_64 && (t == IRT_I64 || t == IRT_U64)) {
-	idx = emitconv(idx, IRT_INT, t, 0);
+      if (ctk->size == 8) {
+	idx = emitir(IRT(IR_FLOAD, t), idx, IRFL_CDATA_INT64);
+      } else {
+	idx = emitir(IRT(IR_ADD, IRT_PTR), idx,
+		     lj_ir_kintp(J, sizeof(GCcdata)));
+	idx = emitir(IRT(IR_XLOAD, t), idx, 0);
+      }
+      if (LJ_64 && ctk->size < sizeof(intptr_t) && !(ctk->info & CTF_UNSIGNED))
+	idx = emitconv(idx, IRT_INTP, IRT_INT, IRCONV_SEXT);
+      if (!LJ_64 && ctk->size > sizeof(intptr_t)) {
+	idx = emitconv(idx, IRT_INTP, t, 0);
 	lj_needsplit(J);
       }
       goto integer_key;
@@ -628,7 +628,7 @@ static void crec_alloc(jit_State *J, RecordFFData *rd, CTypeID id)
 	  TRef sp, dp;
 	  TValue tv;
 	  TValue *sval = &tv;
-	  setnumV(&tv, 0);
+	  setintV(&tv, 0);
 	  if (!gcref(df->name)) continue;  /* Ignore unnamed fields. */
 	  dc = ctype_rawchild(cts, df);  /* Field type. */
 	  if (!(ctype_isnum(dc->info) || ctype_isptr(dc->info)))
@@ -730,6 +730,7 @@ static int crec_call(jit_State *J, RecordFFData *rd, GCcdata *cd)
       tr = emitir(IRTG(IR_CNEWI, IRT_CDATA), trid, tr);
     }
     J->base[0] = tr;
+    J->needsnap = 1;
     return 1;
   }
   return 0;

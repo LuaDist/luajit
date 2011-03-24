@@ -35,6 +35,7 @@
   _(BASE,	N , lit, lit) \
   _(HIOP,	S , ref, ref) \
   _(LOOP,	S , ___, ___) \
+  _(USE,	S , ref, ___) \
   _(PHI,	S , ref, ref) \
   _(RENAME,	S , ref, lit) \
   \
@@ -78,8 +79,9 @@
   _(FPMATH,	N , ref, lit) \
   \
   /* Overflow-checking arithmetic ops. */ \
-  _(ADDOV,	C , ref, ref) \
-  _(SUBOV,	N , ref, ref) \
+  _(ADDOV,	CW, ref, ref) \
+  _(SUBOV,	NW, ref, ref) \
+  _(MULOV,	CW, ref, ref) \
   \
   /* Memory ops. A = array, H = hash, U = upvalue, F = field, S = stack. */ \
   \
@@ -122,7 +124,7 @@
   _(XBAR,	S , ___, ___) \
   \
   /* Type conversions. */ \
-  _(CONV,	N , ref, lit) \
+  _(CONV,	NW, ref, lit) \
   _(TOBIT,	N , ref, ref) \
   _(TOSTR,	N , ref, ___) \
   _(STRTO,	N , ref, ___) \
@@ -339,11 +341,12 @@ typedef enum {
 #define IRM_W			0x80
 
 #define IRM_NW			(IRM_N|IRM_W)
+#define IRM_CW			(IRM_C|IRM_W)
 #define IRM_AW			(IRM_A|IRM_W)
 #define IRM_LW			(IRM_L|IRM_W)
 
-#define irm_op1(m)		(cast(IRMode, (m)&3))
-#define irm_op2(m)		(cast(IRMode, ((m)>>2)&3))
+#define irm_op1(m)		((IRMode)((m)&3))
+#define irm_op2(m)		((IRMode)(((m)>>2)&3))
 #define irm_iscomm(m)		((m) & IRM_C)
 #define irm_kind(m)		((m) & IRM_S)
 
@@ -398,8 +401,8 @@ typedef struct IRType1 { uint8_t irt; } IRType1;
 #define IRTG(o, t)		(IRT((o), IRT_GUARD|(t)))
 #define IRTGI(o)		(IRT((o), IRT_GUARD|IRT_INT))
 
-#define irt_t(t)		(cast(IRType, (t).irt))
-#define irt_type(t)		(cast(IRType, (t).irt & IRT_TYPE))
+#define irt_t(t)		((IRType)(t).irt)
+#define irt_type(t)		((IRType)((t).irt & IRT_TYPE))
 #define irt_sametype(t1, t2)	((((t1).irt ^ (t2).irt) & IRT_TYPE) == 0)
 #define irt_typerange(t, first, last) \
   ((uint32_t)((t).irt & IRT_TYPE) - (uint32_t)(first) <= (uint32_t)(last-first))
@@ -438,18 +441,30 @@ typedef struct IRType1 { uint8_t irt; } IRType1;
 
 static LJ_AINLINE IRType itype2irt(const TValue *tv)
 {
-  if (tvisnum(tv))
+  if (tvisint(tv))
+    return IRT_INT;
+  else if (tvisnum(tv))
     return IRT_NUM;
 #if LJ_64
   else if (tvislightud(tv))
     return IRT_LIGHTUD;
 #endif
   else
-    return cast(IRType, ~itype(tv));
+    return (IRType)~itype(tv);
 }
 
-#define irt_toitype(t) \
-  check_exp(!(LJ_64 && irt_islightud((t))), ~(uint32_t)irt_type((t)))
+static LJ_AINLINE uint32_t irt_toitype_(IRType t)
+{
+  lua_assert(!LJ_64 || t != IRT_LIGHTUD);
+  if (LJ_DUALNUM && t > IRT_NUM) {
+    return LJ_TISNUM;
+  } else {
+    lua_assert(t <= IRT_NUM);
+    return ~(uint32_t)t;
+  }
+}
+
+#define irt_toitype(t)		irt_toitype_(irt_type((t)))
 
 #define irt_isguard(t)		((t).irt & IRT_GUARD)
 #define irt_ismarked(t)		((t).irt & IRT_MARK)

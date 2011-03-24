@@ -267,7 +267,7 @@ TRef lj_ir_kint64(jit_State *J, uint64_t u64)
 static int numistrueint(lua_Number n, int32_t *kp)
 {
   int32_t k = lj_num2int(n);
-  if (n == cast_num(k)) {
+  if (n == (lua_Number)k) {
     if (kp) *kp = k;
     if (k == 0) {  /* Special check for -0. */
       TValue tv;
@@ -401,6 +401,18 @@ void lj_ir_kvalue(lua_State *L, TValue *tv, const IRIns *ir)
 
 /* -- Convert IR operand types -------------------------------------------- */
 
+/* Convert from string to number. */
+TRef LJ_FASTCALL lj_ir_tonumber(jit_State *J, TRef tr)
+{
+  if (!tref_isnumber(tr)) {
+    if (tref_isstr(tr))
+      tr = emitir(IRTG(IR_STRTO, IRT_NUM), tr, 0);
+    else
+      lj_trace_err(J, LJ_TRERR_BADTYPE);
+  }
+  return tr;
+}
+
 /* Convert from integer or string to number. */
 TRef LJ_FASTCALL lj_ir_tonum(jit_State *J, TRef tr)
 {
@@ -422,32 +434,6 @@ TRef LJ_FASTCALL lj_ir_tostr(jit_State *J, TRef tr)
     if (!tref_isnumber(tr))
       lj_trace_err(J, LJ_TRERR_BADTYPE);
     tr = emitir(IRT(IR_TOSTR, IRT_STR), tr, 0);
-  }
-  return tr;
-}
-
-/* Convert from number or string to bitop operand (overflow wrapped). */
-TRef LJ_FASTCALL lj_ir_tobit(jit_State *J, TRef tr)
-{
-  if (!tref_isinteger(tr)) {
-    if (tref_isstr(tr))
-      tr = emitir(IRTG(IR_STRTO, IRT_NUM), tr, 0);
-    else if (!tref_isnum(tr))
-      lj_trace_err(J, LJ_TRERR_BADTYPE);
-    tr = emitir(IRTI(IR_TOBIT), tr, lj_ir_knum_tobit(J));
-  }
-  return tr;
-}
-
-/* Convert from number or string to integer (overflow undefined). */
-TRef LJ_FASTCALL lj_ir_toint(jit_State *J, TRef tr)
-{
-  if (!tref_isinteger(tr)) {
-    if (tref_isstr(tr))
-      tr = emitir(IRTG(IR_STRTO, IRT_NUM), tr, 0);
-    else if (!tref_isnum(tr))
-      lj_trace_err(J, LJ_TRERR_BADTYPE);
-    tr = emitir(IRTI(IR_CONV), tr, IRCONV_INT_NUM|IRCONV_ANY);
   }
   return tr;
 }

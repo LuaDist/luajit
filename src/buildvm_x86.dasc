@@ -400,7 +400,7 @@
 |
 |// Move table write barrier back. Overwrites reg.
 |.macro barrierback, tab, reg
-|  and byte tab->marked, cast_byte(~LJ_GC_BLACK)	// black2gray(tab)
+|  and byte tab->marked, (uint8_t)~LJ_GC_BLACK	// black2gray(tab)
 |  mov reg, [DISPATCH+DISPATCH_GL(gc.grayagain)]
 |  mov [DISPATCH+DISPATCH_GL(gc.grayagain)], tab
 |  mov tab->gclist, reg
@@ -529,6 +529,14 @@ static void build_subroutines(BuildCtx *ctx, int cmov, int sse)
   |  mov GL:RB, L:RB->glref
   |  mov dword GL:RB->vmstate, ~LJ_VMST_C
   |  jmp ->vm_leave_unw
+  |
+  |->vm_unwind_rethrow:
+  |.if X64 and not X64WIN
+  |  mov FCARG1, SAVE_L
+  |  mov FCARG2, eax
+  |  restoreregs
+  |  jmp extern lj_err_throw@8		// (lua_State *L, int errcode)
+  |.endif
   |
   |->vm_unwind_ff@4:			// Unwind C stack, return from ff pcall.
   |  // (void *cframe)
@@ -3753,6 +3761,16 @@ static void build_subroutines(BuildCtx *ctx, int cmov, int sse)
 #endif
   |
   |//-----------------------------------------------------------------------
+  |//-- Assertions ---------------------------------------------------------
+  |//-----------------------------------------------------------------------
+  |
+  |->assert_bad_for_arg_type:
+#ifdef LUA_USE_ASSERT
+  |  int3
+#endif
+  |  int3
+  |
+  |//-----------------------------------------------------------------------
 }
 
 /* Generate the code for a single instruction. */
@@ -4055,10 +4073,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop, int cmov, int sse)
 	|  ucomisd xmm0, qword [KBASE+RD*8]
       } else {
 	|  fild dword [BASE+RA*8]
-	|  fld qword [BASE+RD*8]
+	|  fld qword [KBASE+RD*8]
       }
       |  jmp >4
-      |
     } else {
       |  cmp RB, LJ_TISNUM; jae >3
     }
@@ -4073,8 +4090,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop, int cmov, int sse)
       |  fld qword [KBASE+RD*8]
       |2:
       |  fld qword [BASE+RA*8]
-      |  fcomparepp			// eax (RD) modified!
       |4:
+      |  fcomparepp			// eax (RD) modified!
     }
     goto iseqne_fp;
   case BC_ISEQP: case BC_ISNEP:
@@ -5535,6 +5552,10 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop, int cmov, int sse)
 	|  mov RB, dword FOR_IDX
 	|  cmp dword FOR_STEP, 0; jl >5
       } else {
+#ifdef LUA_USE_ASSERT
+	|  cmp FOR_TSTOP, LJ_TISNUM; jne ->assert_bad_for_arg_type
+	|  cmp FOR_TSTEP, LJ_TISNUM; jne ->assert_bad_for_arg_type
+#endif
 	|  mov RB, dword FOR_STEP
 	|  test RB, RB; js >5
 	|  add RB, dword FOR_IDX; jo >1
@@ -5594,6 +5615,11 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop, int cmov, int sse)
     if (!vk) {
       |  jae ->vmeta_for
       |  cmp FOR_TSTOP, LJ_TISNUM; jae ->vmeta_for
+    } else {
+#ifdef LUA_USE_ASSERT
+      |  cmp FOR_TSTOP, LJ_TISNUM; jae ->assert_bad_for_arg_type
+      |  cmp FOR_TSTEP, LJ_TISNUM; jae ->assert_bad_for_arg_type
+#endif
     }
     |  mov RB, FOR_TSTEP		// Load type/hiword of for step.
     if (!vk) {

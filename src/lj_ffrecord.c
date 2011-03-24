@@ -63,9 +63,9 @@ typedef void (LJ_FASTCALL *RecordFunc)(jit_State *J, RecordFFData *rd);
 /* Get runtime value of int argument. */
 static int32_t argv2int(jit_State *J, TValue *o)
 {
-  if (!tvisnum(o) && !(tvisstr(o) && lj_str_tonum(strV(o), o)))
+  if (!tvisnumber(o) && !(tvisstr(o) && lj_str_tonumber(strV(o), o)))
     lj_trace_err(J, LJ_TRERR_BADTYPE);
-  return lj_num2bit(numV(o));
+  return tvisint(o) ? intV(o) : lj_num2int(numV(o));
 }
 
 /* Get runtime value of string argument. */
@@ -75,9 +75,12 @@ static GCstr *argv2str(jit_State *J, TValue *o)
     return strV(o);
   } else {
     GCstr *s;
-    if (!tvisnum(o))
+    if (!tvisnumber(o))
       lj_trace_err(J, LJ_TRERR_BADTYPE);
-    s = lj_str_fromnum(J->L, &o->n);
+    if (tvisint(o))
+      s = lj_str_fromint(J->L, intV(o));
+    else
+      s = lj_str_fromnum(J->L, &o->n);
     setstrV(J->L, o, s);
     return s;
   }
@@ -128,7 +131,7 @@ static void LJ_FASTCALL recff_type(jit_State *J, RecordFFData *rd)
 {
   /* Arguments already specialized. Result is a constant string. Neat, huh? */
   uint32_t t;
-  if (tvisnum(&rd->argv[0]))
+  if (tvisnumber(&rd->argv[0]))
     t = ~LJ_TNUMX;
   else if (LJ_64 && tvislightud(&rd->argv[0]))
     t = ~LJ_TLIGHTUD;
@@ -255,7 +258,7 @@ static void LJ_FASTCALL recff_tonumber(jit_State *J, RecordFFData *rd)
   TRef tr = J->base[0];
   TRef base = J->base[1];
   if (tr && base) {
-    base = lj_ir_toint(J, base);
+    base = lj_opt_narrow_toint(J, base);
     if (!tref_isk(base) || IR(tref_ref(base))->i != 10)
       recff_nyiu(J);
   }
@@ -332,12 +335,12 @@ static void LJ_FASTCALL recff_ipairs_aux(jit_State *J, RecordFFData *rd)
   RecordIndex ix;
   ix.tab = J->base[0];
   if (tref_istab(ix.tab)) {
-    if (!tvisnum(&rd->argv[1]))  /* No support for string coercion. */
+    if (!tvisnumber(&rd->argv[1]))  /* No support for string coercion. */
       lj_trace_err(J, LJ_TRERR_BADTYPE);
-    setnumV(&ix.keyv, numV(&rd->argv[1])+(lua_Number)1);
+    setintV(&ix.keyv, numberVint(&rd->argv[1])+1);
     settabV(J->L, &ix.tabv, tabV(&rd->argv[0]));
     ix.val = 0; ix.idxchain = 0;
-    ix.key = lj_ir_toint(J, J->base[1]);
+    ix.key = lj_opt_narrow_toint(J, J->base[1]);
     J->base[0] = ix.key = emitir(IRTI(IR_ADD), ix.key, lj_ir_kint(J, 1));
     J->base[1] = lj_record_idx(J, &ix);
     rd->nres = tref_isnil(J->base[1]) ? 0 : 2;
@@ -411,9 +414,17 @@ static void LJ_FASTCALL recff_math_abs(jit_State *J, RecordFFData *rd)
 /* Record rounding functions math.floor and math.ceil. */
 static void LJ_FASTCALL recff_math_round(jit_State *J, RecordFFData *rd)
 {
-  if (!tref_isinteger(J->base[0]))  /* Pass through integers unmodified. */
-    J->base[0] = emitir(IRTN(IR_FPMATH), lj_ir_tonum(J, J->base[0]), rd->data);
-  /* Note: result is integral (or NaN/Inf), but may not fit into an integer. */
+  TRef tr = J->base[0];
+  if (!tref_isinteger(tr)) {  /* Pass through integers unmodified. */
+    tr = emitir(IRTN(IR_FPMATH), lj_ir_tonum(J, tr), rd->data);
+    /* Result is integral (or NaN/Inf), but may not fit an int32_t. */
+    if (LJ_DUALNUM) {  /* Try to narrow using a guarded conversion to int. */
+      lua_Number n = lj_vm_foldfpm(numberVnum(&rd->argv[0]), rd->data);
+      if (n == (lua_Number)lj_num2int(n))
+	tr = emitir(IRTGI(IR_CONV), tr, IRCONV_INT_NUM|IRCONV_CHECK);
+    }
+    J->base[0] = tr;
+  }
 }
 
 /* Record unary math.* functions, mapped to IR_FPMATH opcode. */
@@ -485,11 +496,19 @@ static void LJ_FASTCALL recff_math_pow(jit_State *J, RecordFFData *rd)
 
 static void LJ_FASTCALL recff_math_minmax(jit_State *J, RecordFFData *rd)
 {
-  TRef tr = lj_ir_tonum(J, J->base[0]);
+  TRef tr = lj_ir_tonumber(J, J->base[0]);
   uint32_t op = rd->data;
   BCReg i;
-  for (i = 1; J->base[i] != 0; i++)
-    tr = emitir(IRTN(op), tr, lj_ir_tonum(J, J->base[i]));
+  for (i = 1; J->base[i] != 0; i++) {
+    TRef tr2 = lj_ir_tonumber(J, J->base[i]);
+    IRType t = IRT_INT;
+    if (!(tref_isinteger(tr) && tref_isinteger(tr2))) {
+      if (tref_isinteger(tr)) tr = emitir(IRTN(IR_CONV), tr, IRCONV_NUM_INT);
+      if (tref_isinteger(tr2)) tr2 = emitir(IRTN(IR_CONV), tr2, IRCONV_NUM_INT);
+      t = IRT_NUM;
+    }
+    tr = emitir(IRT(op, t), tr, tr2);
+  }
   J->base[0] = tr;
 }
 
@@ -525,26 +544,26 @@ static void LJ_FASTCALL recff_math_random(jit_State *J, RecordFFData *rd)
 /* Record unary bit.tobit, bit.bnot, bit.bswap. */
 static void LJ_FASTCALL recff_bit_unary(jit_State *J, RecordFFData *rd)
 {
-  TRef tr = lj_ir_tobit(J, J->base[0]);
+  TRef tr = lj_opt_narrow_tobit(J, J->base[0]);
   J->base[0] = (rd->data == IR_TOBIT) ? tr : emitir(IRTI(rd->data), tr, 0);
 }
 
 /* Record N-ary bit.band, bit.bor, bit.bxor. */
 static void LJ_FASTCALL recff_bit_nary(jit_State *J, RecordFFData *rd)
 {
-  TRef tr = lj_ir_tobit(J, J->base[0]);
+  TRef tr = lj_opt_narrow_tobit(J, J->base[0]);
   uint32_t op = rd->data;
   BCReg i;
   for (i = 1; J->base[i] != 0; i++)
-    tr = emitir(IRTI(op), tr, lj_ir_tobit(J, J->base[i]));
+    tr = emitir(IRTI(op), tr, lj_opt_narrow_tobit(J, J->base[i]));
   J->base[0] = tr;
 }
 
 /* Record bit shifts. */
 static void LJ_FASTCALL recff_bit_shift(jit_State *J, RecordFFData *rd)
 {
-  TRef tr = lj_ir_tobit(J, J->base[0]);
-  TRef tsh = lj_ir_tobit(J, J->base[1]);
+  TRef tr = lj_opt_narrow_tobit(J, J->base[0]);
+  TRef tsh = lj_opt_narrow_tobit(J, J->base[1]);
   if (!(rd->data < IR_BROL ? LJ_TARGET_MASKSHIFT : LJ_TARGET_MASKROT) &&
       !tref_isk(tsh))
     tsh = emitir(IRTI(IR_BAND), tsh, lj_ir_kint(J, 31));
@@ -570,25 +589,25 @@ static void LJ_FASTCALL recff_string_range(jit_State *J, RecordFFData *rd)
   int32_t start, end;
   if (rd->data) {  /* string.sub(str, start [,end]) */
     start = argv2int(J, &rd->argv[1]);
-    trstart = lj_ir_toint(J, J->base[1]);
+    trstart = lj_opt_narrow_toint(J, J->base[1]);
     trend = J->base[2];
     if (tref_isnil(trend)) {
       trend = lj_ir_kint(J, -1);
       end = -1;
     } else {
-      trend = lj_ir_toint(J, trend);
+      trend = lj_opt_narrow_toint(J, trend);
       end = argv2int(J, &rd->argv[2]);
     }
   } else {  /* string.byte(str, [,start [,end]]) */
     if (J->base[1]) {
       start = argv2int(J, &rd->argv[1]);
-      trstart = lj_ir_toint(J, J->base[1]);
+      trstart = lj_opt_narrow_toint(J, J->base[1]);
       trend = J->base[2];
       if (tref_isnil(trend)) {
 	trend = trstart;
 	end = start;
       } else {
-	trend = lj_ir_toint(J, trend);
+	trend = lj_opt_narrow_toint(J, trend);
 	end = argv2int(J, &rd->argv[2]);
       }
     } else {
@@ -799,8 +818,10 @@ void lj_ffrecord_func(jit_State *J)
   rd.argv = J->L->base;
   J->base[J->maxslot] = 0;  /* Mark end of arguments. */
   (recff_func[m >> 8])(J, &rd);  /* Call recff_* handler. */
-  if (rd.nres >= 0)
+  if (rd.nres >= 0) {
+    if (J->postproc == LJ_POST_NONE) J->postproc = LJ_POST_FFRETRY;
     lj_record_ret(J, 0, rd.nres);
+  }
 }
 
 #undef IR

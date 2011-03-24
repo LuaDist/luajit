@@ -87,9 +87,10 @@ static BCPos currentpc(lua_State *L, GCfunc *fn, cTValue *nextframe)
   if (!isluafunc(fn)) {  /* Cannot derive a PC for non-Lua functions. */
     return ~(BCPos)0;
   } else if (nextframe == NULL) {  /* Lua function on top. */
-    if (L->cframe == NULL)
+    void *cf = cframe_raw(L->cframe);
+    if (cf == NULL || (char *)cframe_pc(cf) == (char *)cframe_L(cf))
       return ~(BCPos)0;
-    ins = cframe_Lpc(L);  /* Only happens during error/hook handling. */
+    ins = cframe_pc(cf);  /* Only happens during error/hook handling. */
   } else {
     if (frame_islua(nextframe)) {
       ins = frame_pc(nextframe);
@@ -501,11 +502,14 @@ static void *err_unwind(lua_State *L, void *stopcf, int errcode)
       frame = frame_prevd(frame);
       break;
     case FRAME_PCALL:  /* FF pcall() frame. */
-      if (errcode)
-	hook_leave(G(L));
-      /* fallthrough */
     case FRAME_PCALLH:  /* FF pcall() frame inside hook. */
       if (errcode) {
+	if (errcode == LUA_YIELD) {
+	  frame = frame_prevd(frame);
+	  break;
+	}
+	if (frame_typep(frame) == FRAME_PCALL)
+	  hook_leave(G(L));
 	L->cframe = cf;
 	L->base = frame_prevd(frame) + 1;
 	unwindstack(L, L->base);
@@ -576,6 +580,16 @@ LJ_FUNCA int lj_err_unwind_dwarf(int version, _Unwind_Action actions,
 				       lj_vm_unwind_c_eh));
       return _URC_INSTALL_CONTEXT;
     }
+#if LJ_TARGET_X86ORX64
+    else if ((actions & _UA_HANDLER_FRAME)) {
+      /* Workaround for ancient libgcc bug. Still present in RHEL 5.5. :-/
+      ** Real fix: http://gcc.gnu.org/viewcvs/trunk/gcc/unwind-dw2.c?r1=121165&r2=124837&pathrev=153877&diff_format=h
+      */
+      _Unwind_SetGR(ctx, LJ_TARGET_EHRETREG, errcode);
+      _Unwind_SetIP(ctx, (_Unwind_Ptr)lj_vm_unwind_rethrow);
+      return _URC_INSTALL_CONTEXT;
+    }
+#endif
 #else
     /* This is not the proper way to escape from the unwinder. We get away with
     ** it on x86/PPC because the interpreter restores all callee-saved regs.
@@ -649,28 +663,28 @@ LJ_FUNCA EXCEPTION_DISPOSITION lj_err_unwind_win64(EXCEPTION_RECORD *rec,
   void *cf, CONTEXT *ctx, UndocumentedDispatcherContext *dispatch)
 {
   lua_State *L = cframe_L(cf);
+  int errcode = LJ_EXCODE_CHECK(rec->ExceptionCode) ?
+		LJ_EXCODE_ERRCODE(rec->ExceptionCode) : LUA_ERRRUN;
   if ((rec->ExceptionFlags & 6)) {  /* EH_UNWINDING|EH_EXIT_UNWIND */
-    err_unwind(L, cf, 1);  /* Unwind internal frames. */
+    /* Unwind internal frames. */
+    err_unwind(L, cf, errcode);
   } else {
     void *cf2 = err_unwind(L, cf, 0);
     if (cf2) {  /* We catch it, so start unwinding the upper frames. */
-      int errcode;
-      if (LJ_EXCODE_CHECK(rec->ExceptionCode)) {
-	errcode = LJ_EXCODE_ERRCODE(rec->ExceptionCode);
-      } else if (rec->ExceptionCode == LJ_MSVC_EXCODE) {
+      if (rec->ExceptionCode == LJ_MSVC_EXCODE) {
 #ifdef _MSC_VER
 	__DestructExceptionObject(rec, 1);
 #endif
 	setstrV(L, L->top++, lj_err_str(L, LJ_ERR_ERRCPP));
-	errcode = LUA_ERRRUN;
-      } else {  /* Don't catch access violations etc. */
+      } else if (!LJ_EXCODE_CHECK(rec->ExceptionCode)) {
+	/* Don't catch access violations etc. */
 	return ExceptionContinueSearch;
       }
       /* Unwind the stack and call all handlers for all lower C frames
       ** (including ourselves) again with EH_UNWINDING set. Then set
       ** rsp = cf, rax = errcode and jump to the specified target.
       */
-      RtlUnwindEx(cf, (void *)(cframe_unwind_ff(cf2) ?
+      RtlUnwindEx(cf, (void *)((cframe_unwind_ff(cf2) && errcode != LUA_YIELD) ?
 			       lj_vm_unwind_ff_eh :
 			       lj_vm_unwind_c_eh),
 		  rec, (void *)errcode, ctx, dispatch->HistoryTable);
@@ -815,9 +829,11 @@ LJ_NOINLINE static void err_loc(lua_State *L, const char *msg,
     if (isluafunc(fn)) {
       char buff[LUA_IDSIZE];
       BCLine line = currentline(L, fn, nextframe);
-      err_chunkid(buff, strdata(proto_chunkname(funcproto(fn))));
-      lj_str_pushf(L, "%s:%d: %s", buff, line, msg);
-      return;
+      if (line >= 0) {
+	err_chunkid(buff, strdata(proto_chunkname(funcproto(fn))));
+	lj_str_pushf(L, "%s:%d: %s", buff, line, msg);
+	return;
+      }
     }
   }
   lj_str_pushf(L, "%s", msg);

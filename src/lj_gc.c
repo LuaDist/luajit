@@ -32,11 +32,11 @@
 #define GCFINALIZECOST	100
 
 /* Macros to set GCobj colors and flags. */
-#define white2gray(x)		((x)->gch.marked &= cast_byte(~LJ_GC_WHITES))
-#define black2gray(x)		((x)->gch.marked &= cast_byte(~LJ_GC_BLACK))
+#define white2gray(x)		((x)->gch.marked &= (uint8_t)~LJ_GC_WHITES)
+#define black2gray(x)		((x)->gch.marked &= (uint8_t)~LJ_GC_BLACK)
 #define gray2black(x)		((x)->gch.marked |= LJ_GC_BLACK)
 #define makewhite(g, x) \
-  ((x)->gch.marked = ((x)->gch.marked & cast_byte(~LJ_GC_COLORS)) | curwhite(g))
+  ((x)->gch.marked = ((x)->gch.marked & (uint8_t)~LJ_GC_COLORS) | curwhite(g))
 #define isfinalized(u)		((u)->marked & LJ_GC_FINALIZED)
 #define markfinalized(u)	((u)->marked |= LJ_GC_FINALIZED)
 
@@ -52,7 +52,7 @@
   { if (iswhite(obj2gco(o))) gc_mark(g, obj2gco(o)); }
 
 /* Mark a string object. */
-#define gc_mark_str(s)		((s)->marked &= cast_byte(~LJ_GC_WHITES))
+#define gc_mark_str(s)		((s)->marked &= (uint8_t)~LJ_GC_WHITES)
 
 /* Mark a white GCobj. */
 static void gc_mark(global_State *g, GCobj *o)
@@ -174,7 +174,7 @@ static int gc_traverse_tab(global_State *g, GCtab *t)
       else if (c == 'K') weak = (int)(~0u & ~LJ_GC_WEAKVAL);
     }
     if (weak > 0) {  /* Weak tables are cleared in the atomic phase. */
-      t->marked = cast_byte((t->marked & ~LJ_GC_WEAK) | weak);
+      t->marked = (uint8_t)((t->marked & ~LJ_GC_WEAK) | weak);
       setgcrefr(t->gclist, g->gc.weak);
       setgcref(g->gc.weak, obj2gco(t));
     }
@@ -310,7 +310,7 @@ static size_t propagatemark(global_State *g)
   setgcrefr(g->gc.gray, o->gch.gclist);  /* Remove from gray list. */
   if (LJ_LIKELY(o->gch.gct == ~LJ_TTAB)) {
     GCtab *t = gco2tab(o);
-    if (gc_traverse_tab(g, t))
+    if (gc_traverse_tab(g, t) > 0)
       black2gray(o);  /* Keep weak tables gray. */
     return sizeof(GCtab) + sizeof(TValue) * t->asize +
 			   sizeof(Node) * (t->hmask + 1);
@@ -594,7 +594,7 @@ static void atomic(global_State *g, lua_State *L)
   gc_clearweak(gcref(g->gc.weak));
 
   /* Prepare for sweep phase. */
-  g->gc.currentwhite = cast_byte(otherwhite(g));  /* Flip current white. */
+  g->gc.currentwhite = (uint8_t)otherwhite(g);  /* Flip current white. */
   g->strempty.marked = g->gc.currentwhite;
   setmref(g->gc.sweep, &g->gc.root);
   g->gc.estimate = g->gc.total - (MSize)udsize;  /* Initial estimate. */
@@ -772,7 +772,7 @@ void LJ_FASTCALL lj_gc_barrieruv(global_State *g, TValue *tv)
   if (g->gc.state == GCSpropagate || g->gc.state == GCSatomic)
     gc_mark(g, gcV(tv));
   else
-    TV2MARKED(tv) = (TV2MARKED(tv) & cast_byte(~LJ_GC_COLORS)) | curwhite(g);
+    TV2MARKED(tv) = (TV2MARKED(tv) & (uint8_t)~LJ_GC_COLORS) | curwhite(g);
 #undef TV2MARKED
 }
 
