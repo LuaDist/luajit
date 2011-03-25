@@ -4,68 +4,222 @@
 # For details see the COPYRIGHT file distributed with LuaDist.
 # Please note that the package source code is licensed under its own license.
 
-PROJECT ( luajit C)
-CMAKE_MINIMUM_REQUIRED(VERSION 2.6)
-INCLUDE(dist.cmake )
+project ( luajit C ASM)
+cmake_minimum_required ( VERSION 2.6 )
+include ( dist.cmake )
 
-# Basic architecture detection
-IF( CMAKE_SIZEOF_VOID_P MATCHES 8 )
-	MESSAGE(FATAL_ERROR "LuaJIT only supports 32bit machines")
-ENDIF()
+## CONFIGURATION
+# Default configuration (we assume POSIX by default)
+set ( LUA_PATH "LUA_PATH" CACHE STRING "Environment variable to use as package.path." )
+set ( LUA_CPATH "LUA_CPATH" CACHE STRING "Environment variable to use as package.cpath." )
+set ( LUA_INIT "LUA_INIT" CACHE STRING "Environment variable for initial script." )
 
-# Determine install host
-IF ( WIN32 AND NOT CYGWIN)
-	ADD_DEFINITIONS ( -DLUA_BUILD_AS_DLL )
-ELSE ( )
-	ADD_DEFINITIONS ( -DLUA_USE_POSIX -DLUA_USE_DLOPEN )
-	SET ( LIBS m dl )
-ENDIF ( )
+option ( LUA_ANSI "Use only ansi features." OFF )
+option ( LUA_USE_RELATIVE_LOADLIB "Use modified loadlib.c with support for relative paths on posix systems." ON)
+set ( LUA_IDSIZE 60 CACHE NUMBER "gives the maximum size for the description of the source." )
+set ( LUA_PROMPT "> " CACHE STRING "Is the default prompt used by stand-alone Lua." )
+set ( LUA_PROMPT2 ">> " CACHE STRING "Is the default continuation prompt used by stand-alone Lua." )
+set ( LUA_MAXINPUT 512 CACHE NUMBER "Is the maximum length for an input line in the stand-alone interpreter.")
 
-# Add Readline support when available
-FIND_PATH(READLINE_INCLUDE_DIR readline/readline.h)
-FIND_LIBRARY(READLINE_LIBRARY NAMES readline)
-IF ( READLINE_LIBRARY )
-	INCLUDE_DIRECTORIES ( ${READLINE_INCLUDE_DIR} )
-	ADD_DEFINITIONS ( -DLUA_USE_READLINE )
-	SET ( LIBS ${LIBS} ${READLINE_LIBRARY} )
-ENDIF ( )
+# LuaJIT specific
+option ( LUAJIT_DISABLE_FFI "Disable FFI." OFF )
+option ( LUAJIT_ENABLE_LUA52COMPAT "Enable Lua 5.2 compatibility." OFF )
+option ( LUAJIT_DISABLE_JIT "Disable JIT." OFF )
+option ( LUAJIT_CPU_SSE2 "Disable SSE2." OFF )
+option ( LUAJIT_CPU_NOCMOV "Disable NOCMOV." OFF )
 
-# Add Curses support when available
-INCLUDE(FindCurses)
-IF ( CURSES_LIBRARY )
-	INCLUDE_DIRECTORIES ( ${CURSES_INCLUDE_DIR} )
-	SET ( LIBS ${LIBS} ${CURSES_LIBRARY} )
-ENDIF ( )
+#2DO: LUAI_* and LUAL_* settings, for now defaults are used.
+set ( LUA_DIRSEP "/" )
+set ( LUA_MODULE_SUFFIX ${CMAKE_SHARED_MODULE_SUFFIX} )
+set ( LUA_ROOT ${CMAKE_INSTALL_PREFIX} CACHE STRING "Destination from which modules will be resolved. See INSTALL_LMOD and INSTALL_CMOD.")
+set ( LUA_LDIR ${INSTALL_LMOD} )
+set ( LUA_CDIR ${INSTALL_CMOD} )
 
-# Build Libraries
-SET(SRC_COCO src/lcoco.c)
-SET(SRC_LIBJIT src/ljit_core.c src/ljit_mem.c src/ljit_dasm.c src/ljit_backend.c)
-SET(SRC_LIBLUAJIT src/lauxlib.c src/lbaselib.c src/ldblib.c src/liolib.c src/lmathlib.c src/loslib.c src/ltablib.c src/lstrlib.c src/loadlib.c src/linit.c src/ljitlib.c)
-SET(SRC_JITCORE src/lapi.c src/lcode.c src/ldebug.c src/ldo.c src/ldump.c src/lfunc.c src/lgc.c src/llex.c src/lmem.c src/lobject.c src/lopcodes.c src/lparser.c src/lstate.c src/lstring.c src/ltable.c src/ltm.c src/lundump.c src/lvm.c src/lzio.c ${SRC_COCO} ${SRC_LIBJIT})
+if ( WIN32 AND NOT CYGWIN )
+  # Windows systems
+  add_definitions ( -DLUAJIT_TARGET= -DLUA_BUILD_AS_DLL -DLUAJIT_OS=LUAJIT_OS_WINDOWS)
+  set ( LJVM_MODE coffasm )
+  # Paths (Double escapes needed)
+  set ( LUA_DIRSEP "\\\\" )
+  string ( REPLACE "/" ${LUA_DIRSEP} LUA_ROOT ${LUA_ROOT} )
+  string ( REPLACE "/" ${LUA_DIRSEP} LUA_LDIR ${LUA_LDIR} )
+  string ( REPLACE "/" ${LUA_DIRSEP} LUA_CDIR ${LUA_CDIR} )
+elseif ( APPLE )
+  set ( CMAKE_EXE_LINKER_FLAGS "-pagezero_size 10000 -image_base 100000000" )
+  option ( LUA_USE_POSIX "Use POSIX functionality." ON )
+  option ( LUA_USE_DLOPEN "Use dynamic linker to load modules." ON )
+  set ( LJVM_MODE machasm )
+else ()
+  option ( LUA_USE_POSIX "Use POSIX functionality." ON )
+  option ( LUA_USE_DLOPEN "Use dynamic linker to load modules." ON )
+  set ( LJVM_MODE elfasm )  
+endif ()
 
-INCLUDE_DIRECTORIES (dynasm src)
-ADD_LIBRARY ( liblua SHARED ${SRC_JITCORE} ${SRC_LIBLUAJIT} src/lua.def src/lua_dll.rc)
-TARGET_LINK_LIBRARIES ( liblua ${LIBS})
-SET_TARGET_PROPERTIES ( liblua PROPERTIES OUTPUT_NAME lua CLEAN_DIRECT_OUTPUT 1 )
+## SETUP
+# Optional libraries
+find_package ( Readline )
+if ( READLINE_FOUND )
+  option ( LUA_USE_READLINE "Use readline in the Lua CLI." ON )
+endif ()
 
-ADD_LIBRARY ( liblua_static ${SRC_JITCORE} ${SRC_LIBLUAJIT})
-TARGET_LINK_LIBRARIES ( liblua_static ${LIBS})
+find_package ( Curses )
+if ( CURSES_FOUND )
+  option ( LUA_USE_CURSES "Use curses in the Lua CLI." ON )
+endif ()
 
-# Build Executables
-SET ( SRC_LUA src/lua.c )
-SET ( SRC_LUAC src/luac.c src/print.c )
+# Setup needed variables and libraries
+if ( LUA_USE_POSIX )
+  # On POSIX Lua links to standard math library "m"
+  list ( APPEND LIBS m )
+endif ()
 
-ADD_EXECUTABLE ( lua ${SRC_LUA} src/lua.rc)
-ADD_EXECUTABLE ( luac ${SRC_LUAC} src/lua_simple.rc)
-TARGET_LINK_LIBRARIES ( lua liblua )
-TARGET_LINK_LIBRARIES ( luac liblua_static )
+if ( LUA_USE_DLOPEN )
+  # Link to dynamic linker library "dl"
+  list ( APPEND LIBS dl )
+endif ()
 
-# Install
-INSTALL ( TARGETS lua luac liblua RUNTIME DESTINATION ${INSTALL_BIN} LIBRARY DESTINATION ${INSTALL_LIB} ARCHIVE DESTINATION ${INSTALL_LIB} )
-INSTALL ( FILES src/lua.h src/luaconf.h src/lualib.h src/lauxlib.h etc/lua.hpp DESTINATION ${INSTALL_INC} )
-INSTALL ( FILES etc/strict.lua DESTINATION ${INSTALL_LMOD} )
-INSTALL ( DIRECTORY jit DESTINATION ${INSTALL_LMOD} )
-INSTALL ( DIRECTORY doc etc DESTINATION ${INSTALL_DATA} PATTERN ".svn" EXCLUDE )
-INSTALL ( DIRECTORY jitdoc DESTINATION ${INSTALL_DOC} PATTERN ".svn" EXCLUDE )
-INSTALL ( FILES README COPYRIGHT DESTINATION ${INSTALL_DATA} )
+if ( LUA_WIN )
+  # Add extra rc files to the windows build
+  if ( MSVC OR MINGW )
+    set ( LUA_DEF src/lua.def )
+    set ( LUA_DLL_RC src/lua_dll.rc )
+    set ( LUA_RC src/lua.rc )
+    set ( LUAC_RC src/luac.rc )
+  endif ()
+endif ()
+
+if ( LUA_USE_READLINE )
+  # Add readline
+  include_directories ( ${READLINE_INCLUDE_DIR} )
+  list ( APPEND LIBS ${READLINE_LIBRARY} )
+endif ()
+
+if ( LUA_USE_CURSES )
+  # Add curses
+  include_directories ( ${CURSES_INCLUDE_DIR} )
+  list ( APPEND LIBS ${CURSES_LIBRARY} )
+endif ()
+
+## SOURCES
+# Generate luaconf.h
+configure_file ( src/luaconf.h.in ${CMAKE_CURRENT_BINARY_DIR}/luaconf.h )
+
+set ( SRC_LIB 
+  src/lib_aux.c 
+  src/lib_base.c 
+  src/lib_bit.c 
+  src/lib_debug.c 
+  src/lib_ffi.c 
+  src/lib_init.c 
+  src/lib_io.c 
+  src/lib_jit.c 
+  src/lib_math.c 
+  src/lib_os.c 
+  src/lib_string.c 
+  src/lib_table.c 
+  )
+if ( LUA_USE_RELATIVE_LOADLIB )
+  list ( APPEND SRC_LIB src/lib_package_rel.c )
+else ()
+  list ( APPEND SRC_LIB src/lib_package.c )
+endif ()
+
+set ( SRC_BUILD 
+  src/buildvm.c
+  src/buildvm_asm.c
+  src/buildvm_peobj.c
+  src/buildvm_lib.c
+  src/buildvm_fold.c
+  )
+
+set ( SRC_JIT 
+  src/lj_gc.c
+  src/lj_err.c 
+  src/lj_char.c 
+  src/lj_bc.c 
+  src/lj_obj.c
+	src/lj_str.c
+	src/lj_tab.c
+	src/lj_func.c
+	src/lj_udata.c
+	src/lj_meta.c
+	src/lj_state.c 
+	src/lj_dispatch.c
+	src/lj_vmevent.c
+	src/lj_api.c
+	src/lj_lex.c
+	src/lj_parse.c
+	src/lj_ir.c
+	src/lj_opt_mem.c
+	src/lj_opt_fold.c
+	src/lj_opt_narrow.c
+	src/lj_opt_dce.c
+	src/lj_opt_loop.c
+	src/lj_opt_split.c
+	src/lj_mcode.c
+	src/lj_snap.c
+	src/lj_record.c
+	src/lj_crecord.c
+	src/lj_ffrecord.c
+	src/lj_asm.c
+	src/lj_trace.c
+	src/lj_gdbjit.c
+	src/lj_ctype.c
+	src/lj_cdata.c
+	src/lj_cconv.c
+	src/lj_ccall.c
+	src/lj_carith.c
+	src/lj_clib.c
+	src/lj_cparse.c
+	src/lj_lib.c 
+	src/lj_alloc.c
+	src/lib_aux.c
+	)  
+
+## GENERATE
+add_executable ( buildvm ${SRC_BUILD} )
+set ( BUILDVM ${CMAKE_CURRENT_BINARY_DIR}/buildvm )
+
+macro(add_buildvm_target _target _mode)
+    add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${_target}
+        COMMAND ${BUILDVM} ARGS -m ${_mode} -o ${CMAKE_CURRENT_BINARY_DIR}/${_target} ${ARGN}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        DEPENDS ${BUILDVM} ${ARGN}
+    )
+endmacro(add_buildvm_target)
+
+add_buildvm_target ( lj_vm.s ${LJVM_MODE} )
+add_buildvm_target ( lj_ffdef.h   ffdef   ${SRC_LIB} )
+add_buildvm_target ( lj_bcdef.h  bcdef  ${SRC_LIB} )
+add_buildvm_target ( lj_folddef.h folddef src/lj_opt_fold.c )
+add_buildvm_target ( lj_recdef.h  recdef  ${SRC_LIB} )
+add_buildvm_target ( lj_libdef.h  libdef  ${SRC_LIB} )
+
+SET(DEPS 
+  ${CMAKE_CURRENT_BINARY_DIR}/lj_vm.s
+  ${CMAKE_CURRENT_BINARY_DIR}/lj_ffdef.h
+  ${CMAKE_CURRENT_BINARY_DIR}/lj_bcdef.h
+  ${CMAKE_CURRENT_BINARY_DIR}/lj_libdef.h
+  ${CMAKE_CURRENT_BINARY_DIR}/lj_recdef.h
+  ${CMAKE_CURRENT_BINARY_DIR}/lj_folddef.h 
+  )
+                  
+## COMPILE
+include_directories ( ${CMAKE_CURRENT_BINARY_DIR} dynasm src )
+add_library ( liblua SHARED ${SRC_JIT} ${SRC_LIB} src/lua.def src/lua_dll.rc ${DEPS} )
+target_link_libraries ( liblua ${LIBS} )
+set_target_properties ( liblua PROPERTIES OUTPUT_NAME lua51 CLEAN_DIRECT_OUTPUT 1 )
+
+add_executable ( lua src/luajit.c src/lua.rc )
+target_link_libraries ( lua liblua )
+
+## INSTALL
+install ( TARGETS lua liblua RUNTIME DESTINATION ${INSTALL_BIN} LIBRARY DESTINATION ${INSTALL_LIB} ARCHIVE DESTINATION ${INSTALL_LIB} )
+install ( FILES src/lua.h ${CMAKE_CURRENT_BINARY_DIR}/luaconf.h src/lualib.h src/lauxlib.h DESTINATION ${INSTALL_INC} )
+
+install_lua_module ( strict etc/strict.lua )
+install_doc ( doc/ )
+install_foo ( etc/ )
+install_data ( COPYRIGHT README )
+install_data ( lib/ INTO lib )
 
