@@ -25,9 +25,16 @@ set ( LUA_MAXINPUT 512 CACHE NUMBER "Is the maximum length for an input line in 
 
 set ( LUA_DIRSEP "/" )
 set ( LUA_MODULE_SUFFIX ${CMAKE_SHARED_MODULE_SUFFIX} )
-set ( LUA_ROOT ${CMAKE_INSTALL_PREFIX} CACHE STRING "Destination from which modules will be resolved. See INSTALL_LMOD and INSTALL_CMOD.")
 set ( LUA_LDIR ${INSTALL_LMOD} )
 set ( LUA_CDIR ${INSTALL_CMOD} )
+
+if ( LUA_USE_RELATIVE_LOADLIB )
+  # This will set up relative paths to lib
+  string ( REGEX REPLACE "[^!/]+" ".." LUA_ROOT "!/${INSTALL_BIN}/" )
+else ()
+  # Direct path to installation
+  set ( LUA_ROOT ${CMAKE_INSTALL_PREFIX} CACHE STRING "Destination from which modules will be resolved. See INSTALL_LMOD and INSTALL_CMOD.")
+endif ()
 
 if ( WIN32 AND NOT CYGWIN )
   # Windows systems
@@ -46,12 +53,6 @@ else ()
   option ( LUA_USE_ISATTY "Use tty." ON )
   option ( LUA_USE_POPEN "Use popen." ON )
   option ( LUA_USE_ULONGJMP "Use ulongjmp" ON)
-endif ()
-
-# on apple this works for 32bit intel only
-if ( CMAKE_OSX_ARCHITECTURES STREQUAL "i386" )
-  message ( "This package only supports i386 architecture. Build using -DCMAKE_OSX_ARCHITECTURES=i386." )
-  message ( FATAL_ERROR "For 64bit systems consider using LuaJIT2. See www.luajit.org for details." )
 endif ()
 
 ## SETUP
