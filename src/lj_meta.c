@@ -15,6 +15,7 @@
 #include "lj_str.h"
 #include "lj_tab.h"
 #include "lj_meta.h"
+#include "lj_frame.h"
 #include "lj_bc.h"
 #include "lj_vm.h"
 
@@ -68,6 +69,29 @@ cTValue *lj_meta_lookup(lua_State *L, cTValue *o, MMS mm)
   return niltv(L);
 }
 
+/* Tailcall from C function. */
+int lj_meta_tailcall(lua_State *L, cTValue *tv)
+{
+  TValue *base = L->base;
+  TValue *top = L->top;
+  const BCIns *pc = frame_pc(base-1);  /* Preserve old PC from frame. */
+  copyTV(L, base-1, tv);  /* Replace frame with new object. */
+  top->u64 = 0;
+  setframe_pc(top, pc);
+  setframe_gc(top+1, obj2gco(L));  /* Dummy frame object. */
+  setframe_ftsz(top+1, (int)((char *)(top+2) - (char *)base) + FRAME_CONT);
+  L->base = L->top = top+2;
+  /*
+  ** before:   [old_mo|PC]    [... ...]
+  **                         ^base     ^top
+  ** after:    [new_mo|itype] [... ...] [NULL|PC] [dummy|delta]
+  **                                                           ^base/top
+  ** tailcall: [new_mo|PC]    [... ...]
+  **                         ^base     ^top
+  */
+  return 0;
+}
+
 /* Setup call to metamethod to be run by Assembler VM. */
 static TValue *mmcall(lua_State *L, ASMFunction cont, cTValue *mo,
 		    cTValue *a, cTValue *b)
@@ -101,7 +125,7 @@ cTValue *lj_meta_tget(lua_State *L, cTValue *o, cTValue *k)
   int loop;
   for (loop = 0; loop < LJ_MAX_IDXCHAIN; loop++) {
     cTValue *mo;
-    if (tvistab(o)) {
+    if (LJ_LIKELY(tvistab(o))) {
       GCtab *t = tabV(o);
       cTValue *tv = lj_tab_get(L, t, k);
       if (!tvisnil(tv) ||
@@ -128,13 +152,22 @@ TValue *lj_meta_tset(lua_State *L, cTValue *o, cTValue *k)
   int loop;
   for (loop = 0; loop < LJ_MAX_IDXCHAIN; loop++) {
     cTValue *mo;
-    if (tvistab(o)) {
+    if (LJ_LIKELY(tvistab(o))) {
       GCtab *t = tabV(o);
-      TValue *tv = lj_tab_set(L, t, k);
-      if (!tvisnil(tv) ||
-	  !(mo = lj_meta_fast(L, tabref(t->metatable), MM_newindex))) {
+      cTValue *tv = lj_tab_get(L, t, k);
+      if (LJ_LIKELY(!tvisnil(tv))) {
+	t->nomm = 0;  /* Invalidate negative metamethod cache. */
 	lj_gc_anybarriert(L, t);
-	return tv;
+	return (TValue *)tv;
+      } else if (!(mo = lj_meta_fast(L, tabref(t->metatable), MM_newindex))) {
+	t->nomm = 0;  /* Invalidate negative metamethod cache. */
+	lj_gc_anybarriert(L, t);
+	if (tv != niltv(L))
+	  return (TValue *)tv;
+	if (tvisnil(k)) lj_err_msg(L, LJ_ERR_NILIDX);
+	else if (tvisint(k)) { setnumV(&tmp, (lua_Number)intV(k)); k = &tmp; }
+	else if (tvisnum(k) && tvisnan(k)) lj_err_msg(L, LJ_ERR_NANIDX);
+	return lj_tab_newkey(L, t, k);
       }
     } else if (tvisnil(mo = lj_meta_lookup(L, o, MM_newindex))) {
       lj_err_optype(L, o, LJ_ERR_OPINDEX);

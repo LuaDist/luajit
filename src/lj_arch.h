@@ -125,7 +125,6 @@
 
 #elif LUAJIT_TARGET == LUAJIT_ARCH_ARM
 
-#error "No support for ARM CPUs (yet)"
 #define LJ_ARCH_NAME		"arm"
 #define LJ_ARCH_BITS		32
 #define LJ_ARCH_ENDIAN		LUAJIT_LE
@@ -137,7 +136,6 @@
 #define LJ_TARGET_MASKSHIFT	0
 #define LJ_TARGET_MASKROT	1
 #define LJ_ARCH_DUALNUM		2
-#define LJ_ARCH_NOFFI		1
 #define LJ_ARCH_NOJIT		1
 
 #elif LUAJIT_TARGET == LUAJIT_ARCH_PPC
@@ -175,7 +173,11 @@
 #if __GNUC__ < 4
 #error "Need at least GCC 4.0 or newer"
 #endif
-#elif LJ_TARGET_ARM || LJ_TARGET_PPC
+#elif LJ_TARGET_ARM
+#if (__GNUC__ < 4) || ((__GNUC__ == 4) && __GNUC_MINOR__ < 2)
+#error "Need at least GCC 4.2 or newer"
+#endif
+#elif LJ_TARGET_PPC
 #if (__GNUC__ < 4) || ((__GNUC__ == 4) && __GNUC_MINOR__ < 3)
 #error "Need at least GCC 4.3 or newer"
 #endif
@@ -192,11 +194,8 @@
 #if defined(__ARMEB__)
 #error "No support for big-endian ARM"
 #endif
-#if defined(__thumb__) || defined(__thumb2__)
-#error "No support for Thumb instruction set (yet)"
-#endif
-#if !__ARM_EABI__
-#error "Only ARM EABI is supported"
+#if !(__ARM_EABI__ || LJ_TARGET_OSX)
+#error "Only ARM EABI or iOS 3.0+ ABI is supported"
 #endif
 #elif LJ_TARGET_PPC
 #if defined(_SOFT_FLOAT) || defined(_SOFT_DOUBLE)

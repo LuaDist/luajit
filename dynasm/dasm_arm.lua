@@ -9,9 +9,9 @@
 local _info = {
   arch =	"arm",
   description =	"DynASM ARM module",
-  version =	"1.2.2",
-  vernum =	 10202,
-  release =	"2011-03-23",
+  version =	"1.3.0",
+  vernum =	 10300,
+  release =	"2011-05-05",
   author =	"Mike Pall",
   license =	"MIT",
 }
@@ -25,7 +25,7 @@ local assert, setmetatable, rawget = assert, setmetatable, rawget
 local _s = string
 local sub, format, byte, char = _s.sub, _s.format, _s.byte, _s.char
 local match, gmatch, gsub = _s.match, _s.gmatch, _s.gsub
-local concat, sort = table.concat, table.sort
+local concat, sort, insert = table.concat, table.sort, table.insert
 
 -- Inherited tables and callbacks.
 local g_opt, g_arch
@@ -127,6 +127,10 @@ end
 -- Store word to reserved position.
 local function wputpos(pos, n)
   assert(n >= 0 and n <= 0xffffffff and n % 1 == 0, "word out of range")
+  if n <= 0x000fffff then
+    insert(actlist, pos+1, n)
+    n = map_action.ESC * 0x10000
+  end
   actlist[pos] = n
 end
 
@@ -274,10 +278,10 @@ local map_op = {
   bic_4 = "e1c00000DNMps",
   mvn_3 = "e1e00000DMps",
 
-  lsl_3 = "e1a00000DMvs",
-  lsr_3 = "e1a00020DMvs",
-  asr_3 = "e1a00040DMvs",
-  ror_3 = "e1a00060DMvs",
+  lsl_3 = "e1a00000DMws",
+  lsr_3 = "e1a00020DMws",
+  asr_3 = "e1a00040DMws",
+  ror_3 = "e1a00060DMws",
   rrx_2 = "e1a00060DMs",
 
   -- Multiply and multiply-accumulate.
@@ -582,6 +586,36 @@ local function parse_shift(shift, gprok)
   end
 end
 
+local function parse_label(label, def)
+  local prefix = sub(label, 1, 2)
+  -- =>label (pc label reference)
+  if prefix == "=>" then
+    return "PC", 0, sub(label, 3)
+  end
+  -- ->name (global label reference)
+  if prefix == "->" then
+    return "LG", map_global[sub(label, 3)]
+  end
+  if def then
+    -- [1-9] (local label definition)
+    if match(label, "^[1-9]$") then
+      return "LG", 10+tonumber(label)
+    end
+  else
+    -- [<>][1-9] (local label reference)
+    local dir, lnum = match(label, "^([<>])([1-9])$")
+    if dir then -- Fwd: 1-9, Bkwd: 11-19.
+      return "LG", lnum + (dir == ">" and 0 or 10)
+    end
+    -- extern label (extern label reference)
+    local extname = match(label, "^extern%s+(%S+)$")
+    if extname then
+      return "EXT", map_extern[extname]
+    end
+  end
+  werror("bad label `"..label.."'")
+end
+
 local function parse_load(params, nparams, n, op)
   local oplo = op % 256
   local ext, ldrd = (oplo ~= 0), (oplo == 208)
@@ -590,11 +624,17 @@ local function parse_load(params, nparams, n, op)
     d = ((op - (op % 4096)) / 4096) % 16
     if d % 2 ~= 0 then werror("odd destination register") end
   end
-  local p1, wb = match(params[n], "^%[%s*(.-)%s*%](!?)$")
+  local pn = params[n]
+  local p1, wb = match(pn, "^%[%s*(.-)%s*%](!?)$")
   local p2 = params[n+1]
   if not p1 then
     if not p2 then
-      local reg, tailr = match(params[n], "^([%w_:]+)%s*(.*)$")
+      if match(pn, "^[<>=%-]") or match(pn, "^extern%s+") then
+	local mode, n, s = parse_label(pn, false)
+	waction("REL_"..mode, n + (ext and 0x1800 or 0x0800), s, 1)
+	return op + 15 * 65536 + 0x01000000 + (ext and 0x00400000 or 0)
+      end
+      local reg, tailr = match(pn, "^([%w_:]+)%s*(.*)$")
       if reg and tailr ~= "" then
 	local d, tp = parse_gpr(reg)
 	if tp then
@@ -649,36 +689,6 @@ local function parse_load(params, nparams, n, op)
   return op
 end
 
-local function parse_label(label, def)
-  local prefix = sub(label, 1, 2)
-  -- =>label (pc label reference)
-  if prefix == "=>" then
-    return "PC", 0, sub(label, 3)
-  end
-  -- ->name (global label reference)
-  if prefix == "->" then
-    return "LG", map_global[sub(label, 3)]
-  end
-  if def then
-    -- [1-9] (local label definition)
-    if match(label, "^[1-9]$") then
-      return "LG", 10+tonumber(label)
-    end
-  else
-    -- [<>][1-9] (local label reference)
-    local dir, lnum = match(label, "^([<>])([1-9])$")
-    if dir then -- Fwd: 1-9, Bkwd: 11-19.
-      return "LG", lnum + (dir == ">" and 0 or 10)
-    end
-    -- extern label (extern label reference)
-    local extname = match(label, "^extern%s+(%S+)$")
-    if extname then
-      return "EXT", map_extern[extname]
-    end
-  end
-  werror("bad label `"..label.."'")
-end
-
 ------------------------------------------------------------------------------
 
 -- Handle opcodes defined with template strings.
@@ -688,7 +698,7 @@ map_op[".template__"] = function(params, template, nparams)
   local n = 1
 
   -- Limit number of section buffer positions used by a single dasm_put().
-  -- A single opcode needs a maximum of 3 positions (rlwinm).
+  -- A single opcode needs a maximum of 3 positions.
   if secpos+3 > maxsecpos then wflush() end
   local pos = wpos()
 
@@ -723,7 +733,7 @@ map_op[".template__"] = function(params, template, nparams)
 	op = op + parse_gpr(p)
       else
 	if op < 0xe0000000 then werror("unconditional instruction") end
-	local mode, n, s = parse_label(params[n], false)
+	local mode, n, s = parse_label(p, false)
 	waction("REL_"..mode, n, s, 1)
 	op = 0xfa000000
       end
@@ -737,6 +747,13 @@ map_op[".template__"] = function(params, template, nparams)
       op = op + parse_imm16(params[n]); n = n + 1
     elseif p == "v" then
       op = op + parse_imm(params[n], 5, 7, 0, false); n = n + 1
+    elseif p == "w" then
+      local imm = match(params[n], "^#(.*)$")
+      if imm then
+	op = op + parse_imm(params[n], 5, 7, 0, false); n = n + 1
+      else
+	op = op + parse_gpr(params[n]) * 256 + 16
+      end
     elseif p == "X" then
       op = op + parse_imm(params[n], 5, 16, 0, false); n = n + 1
     elseif p == "K" then
@@ -920,7 +937,7 @@ function _M.mergemaps(map_coreop, map_def)
     local cv = map_cond[cc]
     if cv then
       local v = rawget(t, sub(k, 1, -5)..sub(k, -2))
-      if v then return format("%x%s", cv, sub(v, 2)) end
+      if type(v) == "string" then return format("%x%s", cv, sub(v, 2)) end
     end
   end })
   setmetatable(map_def, { __index = map_archdef })

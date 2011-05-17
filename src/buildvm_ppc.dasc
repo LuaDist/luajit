@@ -480,7 +480,7 @@ static void build_subroutines(BuildCtx *ctx)
   |    evsplati TISSTR, LJ_TSTR
   |   sub RD, TMP1, BASE
   |    evmergelo TOBIT, TOBIT, TMP2
-  |    stb TMP3, L->status
+  |    stb CARG3, L->status
   |  andi. TMP0, PC, FRAME_TYPE
   |    li_vmstate INTERP
   |   addi RD, RD, 8
@@ -540,7 +540,7 @@ static void build_subroutines(BuildCtx *ctx)
   |
   |->vm_call_dispatch_f:
   |  ins_call
-  |  // BASE = new base, RC = nargs*8
+  |  // BASE = new base, RB = func, RC = nargs*8, PC = caller PC
   |
   |->vm_cpcall:				// Setup protected C frame, call C.
   |  // (lua_State *L, lua_CFunction func, void *ud, lua_CPFunction cp)
@@ -578,18 +578,24 @@ static void build_subroutines(BuildCtx *ctx)
   |->cont_dispatch:
   |  // BASE = meta base, RA = resultptr, RD = (nresults+1)*8
   |  lwz TMP0, -12(BASE)		// Continuation.
-  |   rlwinm TMP1, PC, 0, 0, 28
   |   mr RB, BASE
-  |   sub BASE, BASE, TMP1		// Restore caller BASE.
-  |    lwz LFUNC:TMP1, FRAME_FUNC(BASE)
+  |   mr BASE, TMP2			// Restore caller BASE.
+  |    lwz LFUNC:TMP1, FRAME_FUNC(TMP2)
+  |  cmplwi TMP0, 0
+  |     lwz PC, -16(RB)			// Restore PC from [cont|PC].
+  |  beq >1
   |   subi TMP2, RD, 8
-  |    lwz PC, -16(RB)			// Restore PC from [cont|PC].
   |    lwz TMP1, LFUNC:TMP1->pc
   |   evstddx TISNIL, RA, TMP2		// Ensure one valid arg.
   |    lwz KBASE, PC2PROTO(k)(TMP1)
   |  // BASE = base, RA = resultptr, RB = meta base
   |  mtctr TMP0
   |  bctr				// Jump to continuation.
+  |
+  |1:  // Tail call from C function.
+  |  subi TMP1, RB, 16
+  |  sub RC, TMP1, BASE
+  |  b ->vm_call_tail
   |
   |->cont_cat:				// RA = resultptr, RB = meta base
   |  lwz INS, -4(PC)
@@ -846,7 +852,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  bl extern lj_meta_call	// (lua_State *L, TValue *func, TValue *top)
   |  lwz TMP1, FRAME_PC(BASE)
   |   addi NARGS8:RC, SAVE0, 8		// Got one more argument now.
-  |   lwz LFUNC:RB, FRAME_FUNC(BASE)	// Guaranteed to be a function here.
+  |   lwz LFUNC:RB, FRAME_FUNC(RA)	// Guaranteed to be a function here.
   |  b ->BC_CALLT_Z
   |
   |//-- Argument coercion for 'for' statement ------------------------------
@@ -1108,7 +1114,6 @@ static void build_subroutines(BuildCtx *ctx)
   |  evldd CFUNC:TMP0, CFUNC:RB->upvalue[0]
   |  la RA, -8(BASE)
 #endif
-  |   evstdd TAB:CARG1, 0(BASE)
   |   evstdd TISNIL, 8(BASE)
   |  li RD, (3+1)*8
   |  evstdd CFUNC:TMP0, 0(RA)
@@ -1169,9 +1174,8 @@ static void build_subroutines(BuildCtx *ctx)
   |  la RA, -8(BASE)
 #endif
   |    evsplati TMP1, 0
-  |   evstdd TAB:CARG1, 0(BASE)
-  |    evstdd TMP1, 8(BASE)
   |  li RD, (3+1)*8
+  |    evstdd TMP1, 8(BASE)
   |  evstdd CFUNC:TMP0, 0(RA)
   |  b ->fff_res
   |
@@ -1780,7 +1784,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  lwz TMP3, CFUNC:RB->f
   |    add TMP1, BASE, NARGS8:RC
   |   lwz PC, FRAME_PC(BASE)		// Fallback may overwrite PC.
-  |    addi TMP0, TMP1, 8*LUA_MINSTACK-8
+  |    addi TMP0, TMP1, 8*LUA_MINSTACK
   |     lwz TMP2, L->maxstack
   |   stw PC, SAVE_PC			// Redundant (but a defined value).
   |  cmplw TMP0, TMP2
@@ -1796,14 +1800,15 @@ static void build_subroutines(BuildCtx *ctx)
   |   slwi RD, CRET1, 3
   |   la RA, -8(BASE)
   |  bgt ->fff_res			// Returned nresults+1?
-  |1:  // Returned 0: retry fast path.
+  |1:  // Returned 0 or -1: retry fast path.
   |  lwz TMP0, L->top
   |   lwz LFUNC:RB, FRAME_FUNC(BASE)
   |  sub NARGS8:RC, TMP0, BASE
-  |  bne >2				// Returned -1?
+  |  bne ->vm_call_tail			// Returned -1?
   |  ins_callt				// Returned 0: retry fast path.
   |
-  |2:  // Reconstruct previous base for vmeta_call during tailcall.
+  |// Reconstruct previous base for vmeta_call during tailcall.
+  |->vm_call_tail:
   |  andi. TMP0, PC, FRAME_TYPE
   |   rlwinm TMP1, PC, 0, 0, 28
   |  bne >3
@@ -1814,11 +1819,10 @@ static void build_subroutines(BuildCtx *ctx)
   |  b ->vm_call_dispatch		// Resolve again for tailcall.
   |
   |5:  // Grow stack for fallback handler.
-  |  mr CARG1, L
   |  li CARG2, LUA_MINSTACK
   |  bl extern lj_state_growstack	// (lua_State *L, int n)
   |  lwz BASE, L->base
-  |  cmpw TMP0, TMP0			// Set 4*cr0+eq.
+  |  cmpw TMP0, TMP0			// Set 4*cr0+eq to force retry.
   |  b <1
   |
   |->fff_gcstep:			// Call GC step function.
@@ -2517,13 +2521,13 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |   evstdd TMP1, 0(CARG2)
     |    cmplwi cr1, TMP0, 0
     |  cror 4*cr0+eq, 4*cr0+eq, 4*cr1+eq
-    |   subi TMP2, TMP2, LJ_TISNUM
+    |   subi TMP2, TMP2, (LJ_TISNUM+1)
     |  bne >2				// Upvalue is closed and black?
     |1:
     |  ins_next
     |
     |2:  // Check if new value is collectable.
-    |  cmplwi TMP2, LJ_TISGCV - LJ_TISNUM
+    |  cmplwi TMP2, LJ_TISGCV - (LJ_TISNUM+1)
     |  bge <1				// tvisgcv(v)
     |  lbz TMP3, GCOBJ:TMP1->gch.marked
     |  andi. TMP3, TMP3, LJ_GC_WHITES	// iswhite(v)
@@ -2557,7 +2561,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |2:  // Check if string is white and ensure upvalue is closed.
     |  andi. TMP3, TMP3, LJ_GC_WHITES	// iswhite(str)
     |   cmplwi cr1, TMP2, 0
-    |  crand 4*cr0+eq, 4*cr0+eq, 4*cr1+eq
+    |  cror 4*cr0+eq, 4*cr0+eq, 4*cr1+eq
     |   la CARG1, GG_DISP2G(DISPATCH)
     |  // Crossed a write barrier. Move the barrier forward.
     |  beq <1
@@ -3073,7 +3077,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     break;
 
   case BC_ITERC:
-    |  // RA = base*8, (RB = (nresults+1)*8,) RC = (nargs+1)*8 ((2+1)*8)
+    |  // RA = base*8, (RB = (nresults+1)*8, RC = (nargs+1)*8 ((2+1)*8))
     |  subi RA, RA, 24			// evldd doesn't support neg. offsets.
     |   mr TMP2, BASE
     |  evlddx LFUNC:RB, BASE, RA

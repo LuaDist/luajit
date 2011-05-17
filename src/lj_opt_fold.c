@@ -541,9 +541,7 @@ LJFOLDF(kfold_add_kptr)
 LJFOLD(TOBIT KNUM KNUM)
 LJFOLDF(kfold_tobit)
 {
-  TValue tv;
-  tv.n = knumleft + knumright;
-  return INTFOLD((int32_t)tv.u32.lo);
+  return INTFOLD(lj_num2bit(knumleft));
 }
 
 LJFOLD(CONV KINT IRCONV_NUM_INT)
@@ -910,6 +908,15 @@ LJFOLDF(simplify_conv_int_i64)
 {
   PHIBARRIER(fleft);
   if ((fleft->op2 & IRCONV_SRCMASK) == IRT_INT)
+    return fleft->op1;
+  return NEXTFOLD;
+}
+
+LJFOLD(CONV CONV IRCONV_NUM_FLOAT)  /* _NUM */
+LJFOLDF(simplify_conv_flt_num)
+{
+  PHIBARRIER(fleft);
+  if ((fleft->op2 & IRCONV_SRCMASK) == IRT_NUM)
     return fleft->op1;
   return NEXTFOLD;
 }

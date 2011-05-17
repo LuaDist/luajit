@@ -422,7 +422,8 @@ static LoopEvent rec_for(jit_State *J, const BCIns *fori, int isforl)
   } else {  /* Handle FORI/JFORI opcodes. */
     BCReg i;
     lj_meta_for(J->L, tv);
-    t = lj_opt_narrow_forl(J, tv);
+    t = (LJ_DUALNUM || tref_isint(tr[FORL_IDX])) ? lj_opt_narrow_forl(J, tv) :
+						   IRT_NUM;
     for (i = FORL_IDX; i <= FORL_STEP; i++) {
       lua_assert(tref_isnumber_str(tr[i]));
       if (tref_isstr(tr[i]))
@@ -483,7 +484,7 @@ static LoopEvent rec_iterl(jit_State *J, const BCIns iterins)
 /* Record LOOP/JLOOP. Now, that was easy. */
 static LoopEvent rec_loop(jit_State *J, BCReg ra)
 {
-  J->maxslot = ra;
+  if (ra < J->maxslot) J->maxslot = ra;
   J->pc++;
   return LOOPEV_ENTER;
 }
@@ -521,7 +522,7 @@ static void rec_loop_interp(jit_State *J, const BCIns *pc, LoopEvent ev)
       */
       if (!innerloopleft(J, pc))
 	lj_trace_err(J, LJ_TRERR_LINNER);  /* Root trace hit an inner loop. */
-      if ((J->loopref && J->cur.nins - J->loopref > 8) || --J->loopunroll < 0)
+      if ((J->loopref && J->cur.nins - J->loopref > 24) || --J->loopunroll < 0)
 	lj_trace_err(J, LJ_TRERR_LUNROLL);  /* Limit loop unrolling. */
       J->loopref = J->cur.nins;
     }
@@ -556,7 +557,7 @@ static void rec_call_setup(jit_State *J, BCReg func, ptrdiff_t nargs)
   TRef trfunc, *fbase = &J->base[func];
   ptrdiff_t i;
   for (i = 0; i <= nargs; i++)
-    getslot(J, func+i);  /* Ensure func and all args have a reference. */
+    (void)getslot(J, func+i);  /* Ensure func and all args have a reference. */
   if (!tref_isfunc(fbase[0])) {  /* Resolve __call metamethod. */
     ix.tab = fbase[0];
     copyTV(J->L, &ix.tabv, functv);
@@ -634,7 +635,7 @@ void lj_record_ret(jit_State *J, BCReg rbase, ptrdiff_t gotresults)
   TValue *frame = J->L->base - 1;
   ptrdiff_t i;
   for (i = 0; i < gotresults; i++)
-    getslot(J, rbase+i);  /* Ensure all results have a reference. */
+    (void)getslot(J, rbase+i);  /* Ensure all results have a reference. */
   while (frame_ispcall(frame)) {  /* Immediately resolve pcall() returns. */
     BCReg cbase = (BCReg)frame_delta(frame);
     if (--J->framedepth < 0)
@@ -664,7 +665,8 @@ void lj_record_ret(jit_State *J, BCReg rbase, ptrdiff_t gotresults)
     GCproto *pt = funcproto(frame_func(frame - (cbase+1)));
     if (J->framedepth == 0 && J->pt && frame == J->L->base - 1) {
       if (check_downrec_unroll(J, pt)) {
-	J->maxslot = (BCReg)(rbase + nresults);
+	J->maxslot = (BCReg)(rbase + gotresults);
+	lj_snap_purge(J);
 	rec_stop(J, J->cur.traceno);  /* Down-recursion. */
 	return;
       }
@@ -1016,6 +1018,12 @@ static TRef rec_idx_key(jit_State *J, RecordIndex *ix)
   }
 
   /* Otherwise the key is located in the hash part. */
+  if (t->hmask == 0) {  /* Shortcut for empty hash part. */
+    /* Guard that the hash part stays empty. */
+    TRef tmp = emitir(IRTI(IR_FLOAD), ix->tab, IRFL_TAB_HMASK);
+    emitir(IRTGI(IR_EQ), tmp, lj_ir_kint(J, 0));
+    return lj_ir_kkptr(J, niltvg(J2G(J)));
+  }
   if (tref_isinteger(key))  /* Hash keys are based on numbers, not ints. */
     ix->key = key = emitir(IRTN(IR_CONV), key, IRCONV_NUM_INT);
   if (tref_isk(key)) {
@@ -1105,7 +1113,7 @@ TRef lj_record_idx(jit_State *J, RecordIndex *ix)
   xref = rec_idx_key(J, ix);
   xrefop = IR(tref_ref(xref))->o;
   loadop = xrefop == IR_AREF ? IR_ALOAD : IR_HLOAD;
-  /* NYI: workaround until lj_meta_tset() inconsistency is solved. */
+  /* The lj_meta_tset() inconsistency is gone, but better play safe. */
   oldv = xrefop == IR_KKPTR ? (cTValue *)ir_kptr(IR(tref_ref(xref))) : ix->oldv;
 
   if (ix->val == 0) {  /* Indexed load */

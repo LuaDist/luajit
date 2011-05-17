@@ -97,6 +97,7 @@ typedef struct ASMState {
 #define FUSE_DISABLED		(~(IRRef)0)
 #define mayfuse(as, ref)	((ref) > as->fuseref)
 #define neverfuse(as)		(as->fuseref == FUSE_DISABLED)
+#define canfuse(as, ir)		(!neverfuse(as) && !irt_isphi((ir)->t))
 #define opisfusableload(o) \
   ((o) == IR_ALOAD || (o) == IR_HLOAD || (o) == IR_ULOAD || \
    (o) == IR_FLOAD || (o) == IR_XLOAD || (o) == IR_SLOAD || (o) == IR_VLOAD)
@@ -1348,7 +1349,7 @@ static void asm_fusexref(ASMState *as, IRRef ref, RegSet allow)
     asm_fusestrref(as, ir, allow);
   } else {
     as->mrm.ofs = 0;
-    if (mayfuse(as, ref) && ir->o == IR_ADD && ra_noreg(ir->r)) {
+    if (canfuse(as, ir) && ir->o == IR_ADD && ra_noreg(ir->r)) {
       /* Gather (base+idx*sz)+ofs as emitted by cdata ptr/array indexing. */
       IRIns *irx;
       IRRef idx;
@@ -1356,7 +1357,7 @@ static void asm_fusexref(ASMState *as, IRRef ref, RegSet allow)
       if (asm_isk32(as, ir->op2, &as->mrm.ofs)) {  /* Recognize x+ofs. */
 	ref = ir->op1;
 	ir = IR(ref);
-	if (!(ir->o == IR_ADD && mayfuse(as, ref) && ra_noreg(ir->r)))
+	if (!(ir->o == IR_ADD && canfuse(as, ir) && ra_noreg(ir->r)))
 	  goto noadd;
       }
       as->mrm.scale = XM_SCALE1;
@@ -1368,7 +1369,7 @@ static void asm_fusexref(ASMState *as, IRRef ref, RegSet allow)
 	ref = ir->op1;
 	irx = IR(idx);
       }
-      if (mayfuse(as, idx) && ra_noreg(irx->r)) {
+      if (canfuse(as, irx) && ra_noreg(irx->r)) {
 	if (irx->o == IR_BSHL && irref_isk(irx->op2) && IR(irx->op2)->i <= 3) {
 	  /* Recognize idx<<b with b = 0-3, corresponding to sz = (1),2,4,8. */
 	  idx = irx->op1;
@@ -1577,6 +1578,8 @@ static void asm_setupresult(ASMState *as, IRIns *ir, const CCallInfo *ci)
       lua_assert(!irt_ispri(ir->t));
       ra_destreg(as, ir, RID_RET);
     }
+  } else if (LJ_32 && irt_isfp(ir->t)) {
+    emit_x87op(as, XI_FPOP);  /* Pop unused result from x87 st0. */
   }
 }
 
@@ -3343,6 +3346,7 @@ static void asm_hiop(ASMState *as, IRIns *ir)
     break;
     }
   case IR_CALLN:
+  case IR_CALLXS:
     ra_destreg(as, ir, RID_RETHI);
     if (!uselo)
       ra_allocref(as, ir->op1, RID2RSET(RID_RET));  /* Mark call as used. */
@@ -3602,7 +3606,7 @@ static void asm_phi_fixup(ASMState *as)
 /* Setup right PHI reference. */
 static void asm_phi(ASMState *as, IRIns *ir)
 {
-  RegSet allow = (irt_isnum(ir->t) ? RSET_FPR : RSET_GPR) & ~as->phiset;
+  RegSet allow = (irt_isfp(ir->t) ? RSET_FPR : RSET_GPR) & ~as->phiset;
   RegSet afree = (as->freeset & allow);
   IRIns *irl = IR(ir->op1);
   IRIns *irr = IR(ir->op2);
