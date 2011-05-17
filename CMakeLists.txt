@@ -44,7 +44,7 @@ endif ()
 
 if ( WIN32 AND NOT CYGWIN )
   # Windows systems
-  add_definitions ( -DLUAJIT_TARGET= -DLUA_BUILD_AS_DLL -DLUAJIT_OS=LUAJIT_OS_WINDOWS)
+  add_definitions ( -DLUA_BUILD_AS_DLL -DLUAJIT_OS=LUAJIT_OS_WINDOWS)
   set ( LJVM_MODE coffasm )
   # Paths (Double escapes needed)
   set ( LUA_DIRSEP "\\\\" )
@@ -183,19 +183,55 @@ set ( SRC_JIT
 	src/lib_aux.c
 	)  
 
+# Optionally rebuild buildvm_*.h header.
+if (LUAJIT_RUN_DYNASM)
+  set(DASM ${LUA} ${CMAKE_CURRENT_SOURCE_DIR}/dynasm/dynasm.lua)
+  set(DASM_FLAGS_X86)
+  set(DASM_FLAGS_X64 -D X64)
+  set(DASM_FLAGS_X64WIN -D X64 -D X64WIN)
+  set(DASM_FLAGS_PPCSPE -D SPE)
+  add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/buildvm_x86.h
+    COMMAND ${DASM} -LN ${DASM_FLAGS_X86} -o ${CMAKE_CURRENT_BINARY_DIR}/buildvm_x86.h ${CMAKE_CURRENT_SOURCE_DIR}/src/buildvm_x86.dasc
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/dynasm/dynasm.lua
+  )
+  add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/buildvm_x64.h
+    COMMAND ${DASM} -LN ${DASM_FLAGS_X64} -o ${CMAKE_CURRENT_BINARY_DIR}/buildvm_x64.h ${CMAKE_CURRENT_SOURCE_DIR}/src/buildvm_x86.dasc
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/dynasm/dynasm.lua
+  )
+  add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/buildvm_x64win.h
+    COMMAND ${DASM} -LN ${DASM_FLAGS_X64WIN} -o ${CMAKE_CURRENT_BINARY_DIR}/buildvm_x64win.h ${CMAKE_CURRENT_SOURCE_DIR}/src/buildvm_x86.dasc
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/dynasm/dynasm.lua
+  )
+  add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/buildvm_ppcspe.h
+    COMMAND ${DASM} -LN ${DASM_FLAGS_PPCSPE} -o ${CMAKE_CURRENT_BINARY_DIR}/buildvm_ppcspe.h ${CMAKE_CURRENT_SOURCE_DIR}/src/buildvm_ppc.dasc
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/dynasm/dynasm.lua
+  )
+  
+  # Note: not all of these are needed for the current platform, but for simplicity
+  # specify all.
+  set_source_files_properties(src/buildvm.c PROPERTIES OBJECT_DEPENDS
+    "${CMAKE_CURRENT_BINARY_DIR}/buildvm_x86.h;${CMAKE_CURRENT_BINARY_DIR}/buildvm_x64.h;${CMAKE_CURRENT_BINARY_DIR}/buildvm_x64win.h;${CMAKE_CURRENT_BINARY_DIR}/buildvm_ppcspe.h")
+  include_directories(${CMAKE_CURRENT_BINARY_DIR})
+endif ()
+
 ## GENERATE
 add_executable ( buildvm ${SRC_BUILD} )
-set ( BUILDVM ${CMAKE_CURRENT_BINARY_DIR}/buildvm )
 
 macro(add_buildvm_target _target _mode)
     add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${_target}
-        COMMAND ${BUILDVM} ARGS -m ${_mode} -o ${CMAKE_CURRENT_BINARY_DIR}/${_target} ${ARGN}
+        COMMAND buildvm ARGS -m ${_mode} -o ${CMAKE_CURRENT_BINARY_DIR}/${_target} ${ARGN}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        DEPENDS ${BUILDVM} ${ARGN}
+        DEPENDS buildvm ${ARGN}
     )
 endmacro(add_buildvm_target)
 
-add_buildvm_target ( lj_vm.s ${LJVM_MODE} )
+if (MSVC)
+  add_buildvm_target ( lj_vm.obj peobj )
+  set (LJ_VM_SRC ${CMAKE_CURRENT_BINARY_DIR}/lj_vm.obj)
+else ()
+  add_buildvm_target ( lj_vm.s ${LJVM_MODE} )
+  set (LJ_VM_SRC ${CMAKE_CURRENT_BINARY_DIR}/lj_vm.s)
+endif ()
 add_buildvm_target ( lj_ffdef.h   ffdef   ${SRC_LIB} )
 add_buildvm_target ( lj_bcdef.h  bcdef  ${SRC_LIB} )
 add_buildvm_target ( lj_folddef.h folddef src/lj_opt_fold.c )
@@ -203,7 +239,7 @@ add_buildvm_target ( lj_recdef.h  recdef  ${SRC_LIB} )
 add_buildvm_target ( lj_libdef.h  libdef  ${SRC_LIB} )
 
 SET(DEPS 
-  ${CMAKE_CURRENT_BINARY_DIR}/lj_vm.s
+  ${LJ_VM_SRC}
   ${CMAKE_CURRENT_BINARY_DIR}/lj_ffdef.h
   ${CMAKE_CURRENT_BINARY_DIR}/lj_bcdef.h
   ${CMAKE_CURRENT_BINARY_DIR}/lj_libdef.h
@@ -213,7 +249,8 @@ SET(DEPS
                   
 ## COMPILE
 include_directories ( ${CMAKE_CURRENT_BINARY_DIR} dynasm src )
-add_library ( liblua SHARED ${SRC_JIT} ${SRC_LIB} src/lua.def src/lua_dll.rc ${DEPS} )
+add_library ( liblua SHARED ${SRC_JIT} ${SRC_LIB} #old: src/lua.def
+  src/lua_dll.rc ${DEPS} )
 target_link_libraries ( liblua ${LIBS} )
 set_target_properties ( liblua PROPERTIES OUTPUT_NAME lua51 CLEAN_DIRECT_OUTPUT 1 )
 
