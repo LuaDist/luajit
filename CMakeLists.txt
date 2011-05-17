@@ -189,6 +189,7 @@ if (LUAJIT_RUN_DYNASM)
   set(DASM_FLAGS_X86)
   set(DASM_FLAGS_X64 -D X64)
   set(DASM_FLAGS_X64WIN -D X64 -D X64WIN)
+  set(DASM_FLAGS_ARM)
   set(DASM_FLAGS_PPCSPE -D SPE)
   add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/buildvm_x86.h
     COMMAND ${DASM} -LN ${DASM_FLAGS_X86} -o ${CMAKE_CURRENT_BINARY_DIR}/buildvm_x86.h ${CMAKE_CURRENT_SOURCE_DIR}/src/buildvm_x86.dasc
@@ -202,6 +203,10 @@ if (LUAJIT_RUN_DYNASM)
     COMMAND ${DASM} -LN ${DASM_FLAGS_X64WIN} -o ${CMAKE_CURRENT_BINARY_DIR}/buildvm_x64win.h ${CMAKE_CURRENT_SOURCE_DIR}/src/buildvm_x86.dasc
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/dynasm/dynasm.lua
   )
+  add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/buildvm_arm.h
+    COMMAND ${DASM} -LN ${DASM_FLAGS_PPCSPE} -o ${CMAKE_CURRENT_BINARY_DIR}/buildvm_arm.h ${CMAKE_CURRENT_SOURCE_DIR}/src/buildvm_arm.dasc
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/dynasm/dynasm.lua
+  )
   add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/buildvm_ppcspe.h
     COMMAND ${DASM} -LN ${DASM_FLAGS_PPCSPE} -o ${CMAKE_CURRENT_BINARY_DIR}/buildvm_ppcspe.h ${CMAKE_CURRENT_SOURCE_DIR}/src/buildvm_ppc.dasc
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/dynasm/dynasm.lua
@@ -210,7 +215,7 @@ if (LUAJIT_RUN_DYNASM)
   # Note: not all of these are needed for the current platform, but for simplicity
   # specify all.
   set_source_files_properties(src/buildvm.c PROPERTIES OBJECT_DEPENDS
-    "${CMAKE_CURRENT_BINARY_DIR}/buildvm_x86.h;${CMAKE_CURRENT_BINARY_DIR}/buildvm_x64.h;${CMAKE_CURRENT_BINARY_DIR}/buildvm_x64win.h;${CMAKE_CURRENT_BINARY_DIR}/buildvm_ppcspe.h")
+    "${CMAKE_CURRENT_BINARY_DIR}/buildvm_x86.h;${CMAKE_CURRENT_BINARY_DIR}/buildvm_x64.h;${CMAKE_CURRENT_BINARY_DIR}/buildvm_x64win.h;${CMAKE_CURRENT_BINARY_DIR}/buildvm_arm.h;${CMAKE_CURRENT_BINARY_DIR}/buildvm_ppcspe.h")
   include_directories(${CMAKE_CURRENT_BINARY_DIR})
 endif ()
 
