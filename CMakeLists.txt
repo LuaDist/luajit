@@ -145,43 +145,43 @@ set ( SRC_JIT
   src/lj_char.c 
   src/lj_bc.c 
   src/lj_obj.c
-	src/lj_str.c
-	src/lj_tab.c
-	src/lj_func.c
-	src/lj_udata.c
-	src/lj_meta.c
-	src/lj_state.c 
-	src/lj_dispatch.c
-	src/lj_vmevent.c
-	src/lj_api.c
-	src/lj_lex.c
-	src/lj_parse.c
-	src/lj_ir.c
-	src/lj_opt_mem.c
-	src/lj_opt_fold.c
-	src/lj_opt_narrow.c
-	src/lj_opt_dce.c
-	src/lj_opt_loop.c
-	src/lj_opt_split.c
-	src/lj_mcode.c
-	src/lj_snap.c
-	src/lj_record.c
-	src/lj_crecord.c
-	src/lj_ffrecord.c
-	src/lj_asm.c
-	src/lj_trace.c
-	src/lj_gdbjit.c
-	src/lj_ctype.c
-	src/lj_cdata.c
-	src/lj_cconv.c
-	src/lj_ccall.c
-	src/lj_carith.c
-	src/lj_clib.c
-	src/lj_cparse.c
-	src/lj_lib.c 
-	src/lj_alloc.c
-	src/lib_aux.c
-	)  
+  src/lj_str.c
+  src/lj_tab.c
+  src/lj_func.c
+  src/lj_udata.c
+  src/lj_meta.c
+  src/lj_state.c 
+  src/lj_dispatch.c
+  src/lj_vmevent.c
+  src/lj_api.c
+  src/lj_lex.c
+  src/lj_parse.c
+  src/lj_ir.c
+  src/lj_opt_mem.c
+  src/lj_opt_fold.c
+  src/lj_opt_narrow.c
+  src/lj_opt_dce.c
+  src/lj_opt_loop.c
+  src/lj_opt_split.c
+  src/lj_mcode.c
+  src/lj_snap.c
+  src/lj_record.c
+  src/lj_crecord.c
+  src/lj_ffrecord.c
+  src/lj_asm.c
+  src/lj_trace.c
+  src/lj_gdbjit.c
+  src/lj_ctype.c
+  src/lj_cdata.c
+  src/lj_cconv.c
+  src/lj_ccall.c
+  src/lj_carith.c
+  src/lj_clib.c
+  src/lj_cparse.c
+  src/lj_lib.c 
+  src/lj_alloc.c
+  src/lib_aux.c
+  )  
 
 # Optionally rebuild buildvm_*.h header.
 if (LUAJIT_RUN_DYNASM)
@@ -218,11 +218,11 @@ endif ()
 add_executable ( buildvm ${SRC_BUILD} )
 
 macro(add_buildvm_target _target _mode)
-    add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${_target}
-        COMMAND buildvm ARGS -m ${_mode} -o ${CMAKE_CURRENT_BINARY_DIR}/${_target} ${ARGN}
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        DEPENDS buildvm ${ARGN}
-    )
+  add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${_target}
+    COMMAND buildvm ARGS -m ${_mode} -o ${CMAKE_CURRENT_BINARY_DIR}/${_target} ${ARGN}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    DEPENDS buildvm ${ARGN}
+  )
 endmacro(add_buildvm_target)
 
 if (MSVC)
@@ -249,8 +249,7 @@ SET(DEPS
                   
 ## COMPILE
 include_directories ( ${CMAKE_CURRENT_BINARY_DIR} dynasm src )
-add_library ( liblua SHARED ${SRC_JIT} ${SRC_LIB} #old: src/lua.def
-  src/lua_dll.rc ${DEPS} )
+add_library ( liblua SHARED ${SRC_JIT} ${SRC_LIB} src/lua_dll.rc ${DEPS} ) #old: src/lua.def
 target_link_libraries ( liblua ${LIBS} )
 set_target_properties ( liblua PROPERTIES OUTPUT_NAME lua51 CLEAN_DIRECT_OUTPUT 1 )
 
