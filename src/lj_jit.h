@@ -26,8 +26,17 @@
 /* Names for the CPU-specific flags. Must match the order above. */
 #define JIT_F_CPU_FIRST		JIT_F_CMOV
 #define JIT_F_CPUSTRING		"\4CMOV\4SSE2\4SSE3\6SSE4.1\2P4\3AMD\2K8\4ATOM"
+#elif LJ_TARGET_ARM
+#define JIT_F_ARMV6		0x00000010
+#define JIT_F_ARMV6T2		0x00000020
+#define JIT_F_ARMV7		0x00000040
+
+/* Names for the CPU-specific flags. Must match the order above. */
+#define JIT_F_CPU_FIRST		JIT_F_ARMV6
+#define JIT_F_CPUSTRING		"\5ARMv6\7ARMv6T2\5ARMv7"
 #else
-#error "Missing CPU-specific JIT engine flags"
+#define JIT_F_CPU_FIRST		0
+#define JIT_F_CPUSTRING		""
 #endif
 
 /* Optimization flags. */
@@ -118,7 +127,11 @@ typedef enum {
 } PostProc;
 
 /* Machine code type. */
+#if LJ_TARGET_X86ORX64
 typedef uint8_t MCode;
+#else
+typedef uint32_t MCode;
+#endif
 
 /* Stack snapshot header. */
 typedef struct SnapShot {
@@ -138,6 +151,7 @@ typedef uint32_t SnapEntry;
 #define SNAP_FRAME		0x010000	/* Frame slot. */
 #define SNAP_CONT		0x020000	/* Continuation slot. */
 #define SNAP_NORESTORE		0x040000	/* No need to restore slot. */
+#define SNAP_SOFTFPNUM		0x080000	/* Soft-float number. */
 LJ_STATIC_ASSERT(SNAP_FRAME == TREF_FRAME);
 LJ_STATIC_ASSERT(SNAP_CONT == TREF_CONT);
 
@@ -244,7 +258,7 @@ enum {
   ((TValue *)(((intptr_t)&J->ksimd[2*(n)] + 15) & ~(intptr_t)15))
 
 /* Set/reset flag to activate the SPLIT pass for the current trace. */
-#if LJ_32 && LJ_HASFFI
+#if LJ_SOFTFP || (LJ_32 && LJ_HASFFI)
 #define lj_needsplit(J)		(J->needsplit = 1)
 #define lj_resetsplit(J)	(J->needsplit = 0)
 #else
@@ -305,7 +319,7 @@ typedef struct jit_State {
   MSize sizesnapmap;	/* Size of temp. snapshot map buffer. */
 
   PostProc postproc;	/* Required post-processing after execution. */
-#if LJ_32 && LJ_HASFFI
+#if LJ_SOFTFP || (LJ_32 && LJ_HASFFI)
   int needsplit;	/* Need SPLIT pass. */
 #endif
 
@@ -344,7 +358,7 @@ typedef struct jit_State {
   size_t szallmcarea;	/* Total size of all allocated mcode areas. */
 
   TValue errinfo;	/* Additional info element for trace errors. */
-} jit_State;
+} LJ_ALIGN(16) jit_State;
 
 /* Trivial PRNG e.g. used for penalty randomization. */
 static LJ_AINLINE uint32_t LJ_PRNG_BITS(jit_State *J, int bits)
@@ -352,23 +366,6 @@ static LJ_AINLINE uint32_t LJ_PRNG_BITS(jit_State *J, int bits)
   /* Yes, this LCG is very weak, but that doesn't matter for our use case. */
   J->prngstate = J->prngstate * 1103515245 + 12345;
   return J->prngstate >> (32-bits);
-}
-
-/* Exit stubs. */
-#if LJ_TARGET_X86ORX64
-/* Limited by the range of a short fwd jump (127): (2+2)*(32-1)-2 = 122. */
-#define EXITSTUB_SPACING	(2+2)
-#define EXITSTUBS_PER_GROUP	32
-#else
-#error "Missing CPU-specific exit stub definitions"
-#endif
-
-/* Return the address of an exit stub. */
-static LJ_AINLINE MCode *exitstub_addr(jit_State *J, ExitNo exitno)
-{
-  lua_assert(J->exitstubgroup[exitno / EXITSTUBS_PER_GROUP] != NULL);
-  return J->exitstubgroup[exitno / EXITSTUBS_PER_GROUP] +
-	 EXITSTUB_SPACING*(exitno % EXITSTUBS_PER_GROUP);
 }
 
 #endif

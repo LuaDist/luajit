@@ -72,6 +72,8 @@ static MSize snapshot_slots(jit_State *J, SnapEntry *map, BCReg nslots)
 	    (ir->op2 & (IRSLOAD_READONLY|IRSLOAD_PARENT)) != IRSLOAD_PARENT)
 	  sn |= SNAP_NORESTORE;
       }
+      if (LJ_SOFTFP && irt_isnum(ir->t))
+	sn |= SNAP_SOFTFPNUM;
       map[n++] = sn;
     }
   }
@@ -191,6 +193,7 @@ static BCReg snap_usedef(jit_State *J, uint8_t *udf,
       BCReg minslot = bc_a(ins);
       if (op >= BC_FORI && op <= BC_JFORL) minslot += FORL_EXT;
       else if (op >= BC_ITERL && op <= BC_JITERL) minslot += bc_b(pc[-1])-1;
+      else if (op == BC_UCLO) { pc += bc_j(ins); break; }
       for (s = minslot; s < maxslot; s++) DEF_SLOT(s);
       return minslot < maxslot ? minslot : maxslot;
       }
@@ -305,7 +308,7 @@ static RegSP snap_renameref(GCtrace *T, SnapNo lim, IRRef ref, RegSP rs)
 /* Convert a snapshot into a linear slot -> RegSP map.
 ** Note: unused slots are not initialized!
 */
-void lj_snap_regspmap(uint16_t *rsmap, GCtrace *T, SnapNo snapno)
+void lj_snap_regspmap(uint16_t *rsmap, GCtrace *T, SnapNo snapno, int hi)
 {
   SnapShot *snap = &T->snap[snapno];
   MSize n, nent = snap->nent;
@@ -314,7 +317,8 @@ void lj_snap_regspmap(uint16_t *rsmap, GCtrace *T, SnapNo snapno)
   for (n = 0; n < nent; n++) {
     SnapEntry sn = map[n];
     IRRef ref = snap_ref(sn);
-    if (!irref_isk(ref)) {
+    if (!irref_isk(ref) &&
+	((LJ_SOFTFP && hi) ? (ref++, (sn & SNAP_SOFTFPNUM)) : 1)) {
       IRIns *ir = &T->ir[ref];
       uint32_t rs = ir->prev;
       if (bloomtest(rfilt, ref))
@@ -386,10 +390,14 @@ const BCIns *lj_snap_restore(jit_State *J, void *exptr)
 	rs = snap_renameref(T, snapno, ref, rs);
       if (ra_hasspill(regsp_spill(rs))) {  /* Restore from spill slot. */
 	int32_t *sps = &ex->spill[regsp_spill(rs)];
-	if (irt_isinteger(t)) {
+	if (LJ_SOFTFP && (sn & SNAP_SOFTFPNUM)) {
+	  o->u32.lo = (uint32_t)*sps;
+	} else if (irt_isinteger(t)) {
 	  setintV(o, *sps);
+#if !LJ_SOFTFP
 	} else if (irt_isnum(t)) {
 	  o->u64 = *(uint64_t *)sps;
+#endif
 #if LJ_64
 	} else if (irt_islightud(t)) {
 	  /* 64 bit lightuserdata which may escape already has the tag bits. */
@@ -403,10 +411,14 @@ const BCIns *lj_snap_restore(jit_State *J, void *exptr)
       } else {  /* Restore from register. */
 	Reg r = regsp_reg(rs);
 	lua_assert(ra_hasreg(r));
-	if (irt_isinteger(t)) {
+	if (LJ_SOFTFP && (sn & SNAP_SOFTFPNUM)) {
+	  o->u32.lo = (uint32_t)ex->gpr[r-RID_MIN_GPR];
+	} else if (irt_isinteger(t)) {
 	  setintV(o, (int32_t)ex->gpr[r-RID_MIN_GPR]);
+#if !LJ_SOFTFP
 	} else if (irt_isnum(t)) {
 	  setnumV(o, ex->fpr[r-RID_MIN_FPR]);
+#endif
 #if LJ_64
 	} else if (irt_islightud(t)) {
 	  /* 64 bit lightuserdata which may escape already has the tag bits. */
@@ -417,6 +429,14 @@ const BCIns *lj_snap_restore(jit_State *J, void *exptr)
 	    setgcrefi(o->gcr, ex->gpr[r-RID_MIN_GPR]);
 	  setitype(o, irt_toitype(t));
 	}
+      }
+      if (LJ_SOFTFP && (sn & SNAP_SOFTFPNUM)) {
+	rs = (ir+1)->prev;
+	if (LJ_UNLIKELY(bloomtest(rfilt, ref+1)))
+	  rs = snap_renameref(T, snapno, ref+1, rs);
+	o->u32.hi = (ra_hasspill(regsp_spill(rs))) ?
+	    (uint32_t)*&ex->spill[regsp_spill(rs)] :
+	    (uint32_t)ex->gpr[regsp_reg(rs)-RID_MIN_GPR];
       }
     }
   }

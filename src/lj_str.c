@@ -43,18 +43,6 @@ int32_t LJ_FASTCALL lj_str_cmp(GCstr *a, GCstr *b)
   return (int32_t)(a->len - b->len);
 }
 
-typedef union
-#ifdef __GNUC__
-__attribute__((packed))
-#endif
-Unaligned32 { uint32_t u; uint8_t b[4]; } Unaligned32;
-
-/* Unaligned read of uint32_t. */
-static LJ_AINLINE uint32_t str_getu32(const void *p)
-{
-  return ((const Unaligned32 *)p)->u;
-}
-
 /* Fast string data comparison. Caveat: unaligned access to 1st string! */
 static LJ_AINLINE int str_fastcmp(const char *a, const char *b, MSize len)
 {
@@ -62,7 +50,7 @@ static LJ_AINLINE int str_fastcmp(const char *a, const char *b, MSize len)
   lua_assert(len > 0);
   lua_assert((((uintptr_t)a + len) & (LJ_PAGESIZE-1)) <= LJ_PAGESIZE-4);
   do {  /* Note: innocuous access up to end of string + 3. */
-    uint32_t v = str_getu32(a+i) ^ *(const uint32_t *)(b+i);
+    uint32_t v = lj_getu32(a+i) ^ *(const uint32_t *)(b+i);
     if (v) {
       i -= len;
 #if LJ_LE
@@ -115,11 +103,11 @@ GCstr *lj_str_new(lua_State *L, const char *str, size_t lenx)
   g = G(L);
   /* Compute string hash. Constants taken from lookup3 hash by Bob Jenkins. */
   if (len >= 4) {  /* Caveat: unaligned access! */
-    a = str_getu32(str);
-    h ^= str_getu32(str+len-4);
-    b = str_getu32(str+(len>>1)-2);
+    a = lj_getu32(str);
+    h ^= lj_getu32(str+len-4);
+    b = lj_getu32(str+(len>>1)-2);
     h ^= b; h -= lj_rol(b, 14);
-    b += str_getu32(str+(len>>2)-1);
+    b += lj_getu32(str+(len>>2)-1);
   } else if (len > 0) {
     a = *(const uint8_t *)str;
     h ^= *(const uint8_t *)(str+len-1);
@@ -372,9 +360,13 @@ const char *lj_str_pushvf(lua_State *L, const char *fmt, va_list argp)
       char buf[2+FMTP_CHARS];
       ptrdiff_t p = (ptrdiff_t)(va_arg(argp, void *));
       ptrdiff_t i, lasti = 2+FMTP_CHARS;
+      if (p == 0) {
+	addstr(L, sb, "NULL", 4);
+	break;
+      }
 #if LJ_64
-      if ((p >> 32) == 0)  /* Shorten output for true 32 bit pointers. */
-	lasti = 2+2*4;
+      /* Shorten output for 64 bit pointers. */
+      lasti = 2+2*4+((p >> 32) ? 2+2*(lj_fls((uint32_t)(p >> 32))>>3) : 0);
 #endif
       buf[0] = '0';
       buf[1] = 'x';

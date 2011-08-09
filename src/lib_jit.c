@@ -13,13 +13,16 @@
 #include "lj_arch.h"
 #include "lj_obj.h"
 #include "lj_err.h"
+#include "lj_debug.h"
 #include "lj_str.h"
 #include "lj_tab.h"
 #include "lj_bc.h"
 #if LJ_HASJIT
 #include "lj_ir.h"
 #include "lj_jit.h"
+#include "lj_ircall.h"
 #include "lj_iropt.h"
+#include "lj_target.h"
 #endif
 #include "lj_dispatch.h"
 #include "lj_vm.h"
@@ -178,8 +181,8 @@ LJLIB_CF(jit_util_funcinfo)
     GCtab *t;
     lua_createtable(L, 0, 16);  /* Increment hash size if fields are added. */
     t = tabV(L->top-1);
-    setintfield(L, t, "linedefined", proto_line(pt, 0));
-    setintfield(L, t, "lastlinedefined", pt->lastlinedefined);
+    setintfield(L, t, "linedefined", pt->firstline);
+    setintfield(L, t, "lastlinedefined", pt->firstline + pt->numline);
     setintfield(L, t, "stackslots", pt->framesize);
     setintfield(L, t, "params", pt->numparams);
     setintfield(L, t, "bytecodes", (int32_t)pt->sizebc);
@@ -187,13 +190,14 @@ LJLIB_CF(jit_util_funcinfo)
     setintfield(L, t, "nconsts", (int32_t)pt->sizekn);
     setintfield(L, t, "upvalues", (int32_t)pt->sizeuv);
     if (pc < pt->sizebc)
-      setintfield(L, t, "currentline",
-		  proto_lineinfo(pt) ? proto_line(pt, pc) : 0);
-    lua_pushboolean(L, (pt->flags & PROTO_IS_VARARG));
+      setintfield(L, t, "currentline", lj_debug_line(pt, pc));
+    lua_pushboolean(L, (pt->flags & PROTO_VARARG));
     lua_setfield(L, -2, "isvararg");
+    lua_pushboolean(L, (pt->flags & PROTO_CHILD));
+    lua_setfield(L, -2, "children");
     setstrV(L, L->top++, proto_chunkname(pt));
     lua_setfield(L, -2, "source");
-    lj_err_pushloc(L, pt, pc);
+    lj_debug_pushloc(L, pt, pc);
     lua_setfield(L, -2, "loc");
   } else {
     GCfunc *fn = funcV(L->base);
@@ -252,7 +256,7 @@ LJLIB_CF(jit_util_funcuvname)
   GCproto *pt = check_Lproto(L, 0);
   uint32_t idx = (uint32_t)lj_lib_checkint(L, 2);
   if (idx < pt->sizeuv) {
-    setstrV(L, L->top-1, proto_uvname(pt, idx));
+    setstrV(L, L->top-1, lj_str_newz(L, lj_debug_uvname(pt, idx)));
     return 1;
   }
   return 0;
@@ -518,6 +522,10 @@ JIT_PARAMDEF(JIT_PARAMINIT)
 };
 #endif
 
+#if LJ_TARGET_ARM && LJ_TARGET_LINUX
+#include <sys/utsname.h>
+#endif
+
 /* Arch-dependent CPU detection. */
 static uint32_t jit_cpudetect(lua_State *L)
 {
@@ -561,7 +569,27 @@ static uint32_t jit_cpudetect(lua_State *L)
 #endif
 #endif
 #elif LJ_TARGET_ARM
-  /* NYI */
+  /* Compile-time ARM CPU detection. */
+#if __ARM_ARCH_7__ || __ARM_ARCH_7A__ || __ARM_ARCH_7R__
+  flags |= JIT_F_ARMV6|JIT_F_ARMV6T2|JIT_F_ARMV7;
+#elif __ARM_ARCH_6T2__
+  flags |= JIT_F_ARMV6|JIT_F_ARMV6T2;
+#elif __ARM_ARCH_6__ || __ARM_ARCH_6J__ || __ARM_ARCH_6Z__ || __ARM_ARCH_6ZK__
+  flags |= JIT_F_ARMV6;
+#endif
+  /* Runtime ARM CPU detection. */
+#if LJ_TARGET_LINUX
+  if (!(flags & JIT_F_ARMV7)) {
+    struct utsname ut;
+    uname(&ut);
+    if (strncmp(ut.machine, "armv", 4) == 0) {
+      if (ut.machine[4] >= '7')
+	flags |= JIT_F_ARMV6|JIT_F_ARMV6T2|JIT_F_ARMV7;
+      else if (ut.machine[4] == '6')
+	flags |= JIT_F_ARMV6;
+    }
+  }
+#endif
 #elif LJ_TARGET_PPC
   /* Nothing to do. */
 #else

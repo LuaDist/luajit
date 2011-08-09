@@ -14,6 +14,7 @@
 
 #include "lj_obj.h"
 #include "lj_lib.h"
+#include "lj_vm.h"
 
 /* ------------------------------------------------------------------------ */
 
@@ -53,7 +54,7 @@ LJLIB_ASM_(math_deg)		LJLIB_REC(math_degrad)
 LJLIB_PUSH(0.017453292519943295)
 LJLIB_ASM_(math_rad)		LJLIB_REC(math_degrad)
 
-LJLIB_ASM(math_atan2)		LJLIB_REC(math_binary IR_ATAN2)
+LJLIB_ASM(math_atan2)		LJLIB_REC(.)
 {
   lj_lib_checknum(L, 1);
   lj_lib_checknum(L, 2);
@@ -62,7 +63,7 @@ LJLIB_ASM(math_atan2)		LJLIB_REC(math_binary IR_ATAN2)
 LJLIB_ASM_(math_pow)		LJLIB_REC(.)
 LJLIB_ASM_(math_fmod)
 
-LJLIB_ASM(math_ldexp)		LJLIB_REC(math_binary IR_LDEXP)
+LJLIB_ASM(math_ldexp)		LJLIB_REC(.)
 {
   lj_lib_checknum(L, 1);
 #if LJ_DUALNUM && !LJ_TARGET_X86ORX64
@@ -83,10 +84,6 @@ LJLIB_ASM_(math_max)		LJLIB_REC(math_minmax IR_MAX)
 
 LJLIB_PUSH(3.14159265358979323846) LJLIB_SET(pi)
 LJLIB_PUSH(1e310) LJLIB_SET(huge)
-
-LJ_FUNCA double lj_wrapper_sinh(double x) { return sinh(x); }
-LJ_FUNCA double lj_wrapper_cosh(double x) { return cosh(x); }
-LJ_FUNCA double lj_wrapper_tanh(double x) { return tanh(x); }
 
 /* ------------------------------------------------------------------------ */
 
@@ -166,7 +163,7 @@ LJLIB_CF(math_random)		LJLIB_REC(.)
     double r1 = lj_lib_checknum(L, 1);
 #endif
     if (n == 1) {
-      d = floor(d*r1) + 1.0;  /* d is an int in range [1, r1] */
+      d = lj_vm_floor(d*r1) + 1.0;  /* d is an int in range [1, r1] */
     } else {
 #if LJ_DUALNUM
       double r2;
@@ -180,7 +177,7 @@ LJLIB_CF(math_random)		LJLIB_REC(.)
 #else
       double r2 = lj_lib_checknum(L, 2);
 #endif
-      d = floor(d*(r2-r1+1.0)) + r1;  /* d is an int in range [r1, r2] */
+      d = lj_vm_floor(d*(r2-r1+1.0)) + r1;  /* d is an int in range [r1, r2] */
     }
 #if LJ_DUALNUM
     if (isint) {

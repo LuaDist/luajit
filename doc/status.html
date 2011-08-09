@@ -81,7 +81,7 @@ This is a list of the things you should know about the LuaJIT 2.0 beta test:
 </p>
 <ul>
 <li>
-Obviously there will be many <b>bugs</b> in a VM which has been
+Obviously there will be some <b>bugs</b> in a VM which has been
 rewritten from the ground up. Please report your findings together with
 the circumstances needed to reproduce the bug. If possible, reduce the
 problem down to a simple test case.<br>
@@ -112,11 +112,6 @@ known incompatibilities with standard Lua:
 The Lua <b>debug API</b> is missing a couple of features (return
 hooks for non-Lua functions) and shows slightly different behavior
 (no per-coroutine hooks, no tail call counting).
-</li>
-<li>
-<b>Bytecode</b> currently cannot be loaded or dumped. Note that
-the bytecode format differs from Lua&nbsp;5.1 &mdash; loading foreign
-bytecode is not supported at all.
 </li>
 <li>
 Some of the <b>configuration options</b> of Lua&nbsp;5.1 are not supported:

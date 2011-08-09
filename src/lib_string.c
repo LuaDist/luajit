@@ -22,6 +22,7 @@
 #include "lj_tab.h"
 #include "lj_state.h"
 #include "lj_ff.h"
+#include "lj_bcdump.h"
 #include "lj_char.h"
 #include "lj_lib.h"
 
@@ -114,10 +115,24 @@ LJLIB_ASM_(string_upper)
 
 /* ------------------------------------------------------------------------ */
 
+static int writer_buf(lua_State *L, const void *p, size_t size, void *b)
+{
+  luaL_addlstring((luaL_Buffer *)b, (const char *)p, size);
+  UNUSED(L);
+  return 0;
+}
+
 LJLIB_CF(string_dump)
 {
-  lj_err_caller(L, LJ_ERR_STRDUMP);
-  return 0;  /* unreachable */
+  GCfunc *fn = lj_lib_checkfunc(L, 1);
+  int strip = L->base+1 < L->top && tvistruecond(L->base+1);
+  luaL_Buffer b;
+  L->top = L->base+1;
+  luaL_buffinit(L, &b);
+  if (!isluafunc(fn) || lj_bcwrite(L, funcproto(fn), writer_buf, &b, strip))
+    lj_err_caller(L, LJ_ERR_STRDUMP);
+  luaL_pushresult(&b);
+  return 1;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -736,7 +751,7 @@ static unsigned LUA_INTFRM_T num2uintfrm(lua_State *L, int arg)
 
 LJLIB_CF(string_format)
 {
-  int arg = 1;
+  int arg = 1, top = (int)(L->top - L->base);
   GCstr *fmt = lj_lib_checkstr(L, arg);
   const char *strfrmt = strdata(fmt);
   const char *strfrmt_end = strfrmt + fmt->len;
@@ -750,7 +765,8 @@ LJLIB_CF(string_format)
     } else { /* format item */
       char form[MAX_FMTSPEC];  /* to store the format (`%...') */
       char buff[MAX_FMTITEM];  /* to store the formatted item */
-      arg++;
+      if (++arg > top)
+	luaL_argerror(L, arg, lj_obj_typename[0]);
       strfrmt = scanformat(L, strfrmt, form);
       switch (*strfrmt++) {
       case 'c':

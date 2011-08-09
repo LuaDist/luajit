@@ -8,7 +8,7 @@
 
 #include "lua.h"
 
-#ifdef _MSC_VER
+#if defined(_MSC_VER)
 /* MSVC is stuck in the last century and doesn't have C99's stdint.h. */
 typedef __int8 int8_t;
 typedef __int16 int16_t;
@@ -25,6 +25,18 @@ typedef unsigned __int64 uintptr_t;
 typedef __int32 intptr_t;
 typedef unsigned __int32 uintptr_t;
 #endif
+#elif defined(__symbian__)
+/* Cough. */
+typedef signed char int8_t;
+typedef short int int16_t;
+typedef int int32_t;
+typedef long long int64_t;
+typedef unsigned char uint8_t;
+typedef unsigned short int uint16_t;
+typedef unsigned int uint32_t;
+typedef unsigned long long uint64_t;
+typedef int intptr_t;
+typedef unsigned int uintptr_t;
 #else
 #include <stdint.h>
 #endif
@@ -106,7 +118,9 @@ typedef uintptr_t BloomFilter;
 #define LJ_NOINLINE	__attribute__((noinline))
 
 #if defined(__ELF__) || defined(__MACH__)
+#if !((defined(__sun__) && defined(__svr4__)) || defined(__solaris__))
 #define LJ_NOAPI	extern __attribute__((visibility("hidden")))
+#endif
 #endif
 
 /* Note: it's only beneficial to use fastcall on x86 and then only for up to
@@ -136,7 +150,7 @@ static LJ_AINLINE uint32_t lj_bswap(uint32_t x)
 {
   uint32_t r;
 #if __ARM_ARCH_6__ || __ARM_ARCH_6J__ || __ARM_ARCH_6T2__ || __ARM_ARCH_6Z__ ||\
-    __ARM_ARCH_7__ || __ARM_ARCH_7A__ || __ARM_ARCH_7R__
+    __ARM_ARCH_6ZK__ || __ARM_ARCH_7__ || __ARM_ARCH_7A__ || __ARM_ARCH_7R__
   __asm__("rev %0, %1" : "=r" (r) : "r" (x));
   return r;
 #else
@@ -184,6 +198,28 @@ static LJ_AINLINE uint64_t lj_bswap64(uint64_t x)
 #error "missing define for lj_bswap()"
 #endif
 
+typedef union __attribute__((packed)) Unaligned16 {
+  uint16_t u;
+  uint8_t b[2];
+} Unaligned16;
+
+typedef union __attribute__((packed)) Unaligned32 {
+  uint32_t u;
+  uint8_t b[4];
+} Unaligned32;
+
+/* Unaligned load of uint16_t. */
+static LJ_AINLINE uint16_t lj_getu16(const void *p)
+{
+  return ((const Unaligned16 *)p)->u;
+}
+
+/* Unaligned load of uint32_t. */
+static LJ_AINLINE uint32_t lj_getu32(const void *p)
+{
+  return ((const Unaligned32 *)p)->u;
+}
+
 #elif defined(_MSC_VER)
 
 #define LJ_NORET	__declspec(noreturn)
@@ -207,6 +243,10 @@ static LJ_AINLINE uint32_t lj_fls(uint32_t x)
 
 #define lj_bswap(x)	(_byteswap_ulong((x)))
 #define lj_bswap64(x)	(_byteswap_uint64((x)))
+
+/* MSVC is only supported on x86/x64, where unaligned loads are always ok. */
+#define lj_getu16(p)	(*(uint16_t *)(p))
+#define lj_getu32(p)	(*(uint32_t *)(p))
 
 #else
 #error "missing defines for your compiler"

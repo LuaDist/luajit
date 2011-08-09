@@ -18,6 +18,7 @@
 #include "lj_obj.h"
 #include "lj_gc.h"
 #include "lj_err.h"
+#include "lj_debug.h"
 #include "lj_str.h"
 #include "lj_tab.h"
 #include "lj_meta.h"
@@ -89,7 +90,7 @@ LJLIB_CF(getfenv)
   cTValue *o = L->base;
   if (!(o < L->top && tvisfunc(o))) {
     int level = lj_lib_optint(L, 1, 1);
-    o = lj_err_getframe(L, level, &level);
+    o = lj_debug_frame(L, level, &level);
     if (o == NULL)
       lj_err_arg(L, 1, LJ_ERR_INVLVL);
   }
@@ -110,7 +111,7 @@ LJLIB_CF(setfenv)
       setgcref(L->env, obj2gco(t));
       return 0;
     }
-    o = lj_err_getframe(L, level, &level);
+    o = lj_debug_frame(L, level, &level);
     if (o == NULL)
       lj_err_arg(L, 1, LJ_ERR_INVLVL);
   }
@@ -197,21 +198,20 @@ LJLIB_ASM(tonumber)		LJLIB_REC(.)
 #if LJ_HASFFI
     if (tviscdata(o)) {
       CTState *cts = ctype_cts(L);
-      if (LJ_DUALNUM) {
-	CType *ct = ctype_raw(cts, cdataV(o)->typeid);
-	if (ctype_isinteger_or_bool(ct->info)) {
-	  int64_t i;
-	  lj_cconv_ct_tv(cts, ctype_get(cts, CTID_INT64), (uint8_t *)&i, o, 0);
-	  if ((ct->size == 8 && (ct->info & CTF_UNSIGNED)) ?
-	      (uint64_t)i <= 0x7fffffffu : checki32(i)) {
-	    setintV(L->base-1, (int32_t)i);
-	    return FFH_RES(1);
-	  }  /* else: retry and convert to double. */
+      CType *ct = lj_ctype_rawref(cts, cdataV(o)->typeid);
+      if (ctype_isenum(ct->info)) ct = ctype_child(cts, ct);
+      if (ctype_isnum(ct->info) || ctype_iscomplex(ct->info)) {
+	if (LJ_DUALNUM && ctype_isinteger_or_bool(ct->info) &&
+	    ct->size <= 4 && !(ct->size == 4 && (ct->info & CTF_UNSIGNED))) {
+	  int32_t i;
+	  lj_cconv_ct_tv(cts, ctype_get(cts, CTID_INT32), (uint8_t *)&i, o, 0);
+	  setintV(L->base-1, i);
+	  return FFH_RES(1);
 	}
+	lj_cconv_ct_tv(cts, ctype_get(cts, CTID_DOUBLE),
+		       (uint8_t *)&(L->base-1)->n, o, 0);
+	return FFH_RES(1);
       }
-      lj_cconv_ct_tv(cts, ctype_get(cts, CTID_DOUBLE),
-		     (uint8_t *)&(L->base-1)->n, o, 0);
-      return FFH_RES(1);
     }
 #endif
   } else {

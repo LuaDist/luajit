@@ -171,8 +171,8 @@ open a terminal window and change to this directory. Now unpack the archive
 and change to the newly created directory:
 </p>
 <pre class="code">
-tar zxf LuaJIT-2.0.0-beta7.tar.gz
-cd LuaJIT-2.0.0-beta7</pre>
+tar zxf LuaJIT-2.0.0-beta8.tar.gz
+cd LuaJIT-2.0.0-beta8</pre>
 <h3>Building LuaJIT</h3>
 <p>
 The supplied Makefiles try to auto-detect the settings needed for your
@@ -222,11 +222,11 @@ Obviously the prefixes given during build and installation need to be the same.
 <p style="color: #c00000;">
 Note: to avoid overwriting a previous version, the beta test releases
 only install the LuaJIT executable under the versioned name (i.e.
-<tt>luajit-2.0.0-beta7</tt>). You probably want to create a symlink
+<tt>luajit-2.0.0-beta8</tt>). You probably want to create a symlink
 for convenience, with a command like this:
 </p>
 <pre class="code" style="color: #c00000;">
-sudo ln -sf luajit-2.0.0-beta7&nbsp;/usr/local/bin/luajit
+sudo ln -sf luajit-2.0.0-beta8&nbsp;/usr/local/bin/luajit
 </pre>
 
 <h2 id="windows">Windows Systems</h2>
@@ -366,6 +366,13 @@ make HOST_CC="gcc -m32" CROSS=$NDKP TARGET_FLAGS="$NDKF" TARGET=arm
 <p>
 You can cross-compile for <b id="ios">iOS 3.0+</b> (iPhone/iPad) using the <a href="http://developer.apple.com/devcenter/ios/index.action"><span class="ext">&raquo;</span>&nbsp;iOS SDK</a>.
 The environment variables need to match the iOS SDK version:
+</p>
+<p style="font-size: 8pt;">
+Note: <b>the JIT compiler is disabled for iOS</b>, because regular iOS Apps
+are not allowed to generate code at runtime. You'll only get the performance
+of the LuaJIT interpreter on iOS. This is still faster than plain Lua, but
+much slower than the JIT compiler. Please complain to Apple, not me.
+Or use Android. :-p
 </p>
 <pre class="code">
 ISDK=/Developer/Platforms/iPhoneOS.platform/Developer

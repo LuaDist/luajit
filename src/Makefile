@@ -292,7 +292,9 @@ ifeq (iOS,$(TARGET_SYS))
     TARGET_XSHLDFLAGS+= -install_name $(PREFIX)/lib/$(TARGET_DYLIBNAME)
   endif
 else
-  TARGET_XLDFLAGS+= -Wl,-E
+  ifneq (SunOS,$(TARGET_SYS))
+    TARGET_XLDFLAGS+= -Wl,-E
+  endif
   ifeq (Linux,$(TARGET_SYS))
     TARGET_XLIBS+= -ldl
   endif
@@ -358,9 +360,9 @@ LJLIB_O= lib_base.o lib_math.o lib_bit.o lib_string.o lib_table.o \
 LJLIB_C= $(LJLIB_O:.o=.c)
 
 LJCORE_O= lj_gc.o lj_err.o lj_char.o lj_bc.o lj_obj.o \
-	  lj_str.o lj_tab.o lj_func.o lj_udata.o lj_meta.o \
-	  lj_state.o lj_dispatch.o lj_vmevent.o lj_api.o \
-	  lj_lex.o lj_parse.o \
+	  lj_str.o lj_tab.o lj_func.o lj_udata.o lj_meta.o lj_debug.o \
+	  lj_state.o lj_dispatch.o lj_vmevent.o lj_vmmath.o lj_api.o \
+	  lj_lex.o lj_parse.o lj_bcread.o lj_bcwrite.o \
 	  lj_ir.o lj_opt_mem.o lj_opt_fold.o lj_opt_narrow.o \
 	  lj_opt_dce.o lj_opt_loop.o lj_opt_split.o \
 	  lj_mcode.o lj_snap.o lj_record.o lj_crecord.o lj_ffrecord.o \
@@ -419,6 +421,9 @@ ifeq (Darwin,$(TARGET_SYS))
 endif
 ifeq (iOS,$(TARGET_SYS))
   LJVM_MODE= machasm
+endif
+ifeq (SunOS,$(TARGET_SYS))
+  BUILDMODE= static
 endif
 
 ifeq (static,$(BUILDMODE))
@@ -482,7 +487,9 @@ depend:
 	@$(HOST_CC) $(HOST_ACFLAGS) -MM *.c | \
 	  sed -e "s| [^ ]*/dasm_\S*\.h||g" \
 	      -e "s| buildvm_\S*\.h||g" \
-	      -e "s| lj_target_\S*\.h| lj_target_*.h|g" >Makefile.dep
+	      -e "s| lj_target_\S*\.h| lj_target_*.h|g" \
+	      -e "s| lj_emit_\S*\.h| lj_emit_*.h|g" \
+	      -e "s| lj_asm_\S*\.h| lj_asm_*.h|g" >Makefile.dep
 	@for file in $(ALL_HDRGEN) $(ALL_DYNGEN); do \
 	  test -s $$file || $(HOST_RM) $$file; \
 	  done

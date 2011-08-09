@@ -286,12 +286,6 @@ typedef struct GCcdataVar {
 #define SCALE_NUM_GCO	((int32_t)sizeof(lua_Number)/sizeof(GCRef))
 #define round_nkgc(n)	(((n) + SCALE_NUM_GCO-1) & ~(SCALE_NUM_GCO-1))
 
-typedef struct VarInfo {
-  GCRef name;		/* Local variable name. */
-  BCPos startpc;	/* First point where the local variable is active. */
-  BCPos endpc;		/* First point where the local variable is dead. */
-} VarInfo;
-
 typedef struct GCproto {
   GCHeader;
   uint8_t numparams;	/* Number of parameters. */
@@ -308,19 +302,22 @@ typedef struct GCproto {
   uint16_t trace;	/* Anchor for chain of root traces. */
   /* ------ The following fields are for debugging/tracebacks only ------ */
   GCRef chunkname;	/* Name of the chunk this function was defined in. */
-  BCLine lastlinedefined;  /* Last line of the function definition. */
-  MSize sizevarinfo;	/* Size of local var info array. */
-  MRef varinfo;		/* Names and extents of local variables. */
-  MRef uvname;		/* Array of upvalue names (GCRef of GCstr). */
-  MRef lineinfo;	/* Map from bytecode instructions to source lines. */
+  BCLine firstline;	/* First line of the function definition. */
+  BCLine numline;	/* Number of lines for the function definition. */
+  MRef lineinfo;	/* Compressed map from bytecode ins. to source line. */
+  MRef uvinfo;		/* Upvalue names. */
+  MRef varinfo;		/* Names and compressed extents of local variables. */
 } GCproto;
 
-#define PROTO_IS_VARARG		0x01
-#define PROTO_HAS_FNEW		0x02
-#define PROTO_HAS_RETURN	0x04
-#define PROTO_FIXUP_RETURN	0x08
-#define PROTO_NO_JIT		0x10
-#define PROTO_HAS_ILOOP		0x20
+/* Flags for prototype. */
+#define PROTO_CHILD		0x01	/* Has child prototypes. */
+#define PROTO_VARARG		0x02	/* Vararg function. */
+#define PROTO_FFI		0x04	/* Uses BC_KCDATA for FFI datatypes. */
+#define PROTO_NOJIT		0x08	/* JIT disabled for this function. */
+#define PROTO_ILOOP		0x10	/* Patched bytecode with ILOOP etc. */
+/* Only used during parsing. */
+#define PROTO_HAS_RETURN	0x20	/* Already emitted a return. */
+#define PROTO_FIXUP_RETURN	0x40	/* Need to fixup emitted returns. */
 
 #define proto_kgc(pt, idx) \
   check_exp((uintptr_t)(intptr_t)(idx) >= (uintptr_t)-(intptr_t)(pt)->sizekgc, \
@@ -331,14 +328,11 @@ typedef struct GCproto {
 #define proto_bcpos(pt, pc)	((BCPos)((pc) - proto_bc(pt)))
 #define proto_uv(pt)		(mref((pt)->uv, uint16_t))
 
-#define proto_uvname(pt, idx) \
-  check_exp((uintptr_t)(idx) < (pt)->sizeuv, \
-	    gco2str(gcref(mref((pt)->uvname, GCRef)[(idx)])))
-#define proto_chunkname(pt)	(gco2str(gcref((pt)->chunkname)))
-#define proto_lineinfo(pt)	(mref((pt)->lineinfo, BCLine))
-#define proto_line(pt, pos) \
-  check_exp((uintptr_t)(pos) < (pt)->sizebc, proto_lineinfo(pt)[(pos)])
-#define proto_varinfo(pt)	(mref((pt)->varinfo, VarInfo))
+#define proto_chunkname(pt)	(strref((pt)->chunkname))
+#define proto_chunknamestr(pt)	(strdata(proto_chunkname((pt))))
+#define proto_lineinfo(pt)	(mref((pt)->lineinfo, const void))
+#define proto_uvinfo(pt)	(mref((pt)->uvinfo, const uint8_t))
+#define proto_varinfo(pt)	(mref((pt)->varinfo, const uint8_t))
 
 /* -- Upvalue object ------------------------------------------------------ */
 
@@ -447,9 +441,9 @@ enum {
 #endif
 
 #define MMDEF(_) \
-  _(index) _(newindex) _(gc) _(mode) _(eq) \
+  _(index) _(newindex) _(gc) _(mode) _(eq) _(len) \
   /* Only the above (fast) metamethods are negative cached (max. 8). */ \
-  _(len) _(lt) _(le) _(concat) _(call) \
+  _(lt) _(le) _(concat) _(call) \
   /* The following must be in ORDER ARITH. */ \
   _(add) _(sub) _(mul) _(div) _(mod) _(pow) _(unm) \
   /* The following are used in the standard libraries. */ \
@@ -459,15 +453,15 @@ typedef enum {
 #define MMENUM(name)	MM_##name,
 MMDEF(MMENUM)
 #undef MMENUM
-  MM_MAX,
-  MM____ = MM_MAX,
-  MM_FAST = MM_eq
+  MM__MAX,
+  MM____ = MM__MAX,
+  MM_FAST = MM_len
 } MMS;
 
 /* GC root IDs. */
 typedef enum {
   GCROOT_MMNAME,	/* Metamethod names. */
-  GCROOT_MMNAME_LAST = GCROOT_MMNAME + MM_MAX-1,
+  GCROOT_MMNAME_LAST = GCROOT_MMNAME + MM__MAX-1,
   GCROOT_BASEMT,	/* Metatables for base types. */
   GCROOT_BASEMT_NUM = GCROOT_BASEMT + ~LJ_TNUMX,
   GCROOT_IO_INPUT,	/* Userdata for default I/O input file. */
@@ -786,18 +780,18 @@ static LJ_AINLINE void copyTV(lua_State *L, TValue *o1, const TValue *o2)
 
 /* -- Number to integer conversion ---------------------------------------- */
 
-#if !LJ_ARCH_HASFPU
+#if LJ_SOFTFP
 LJ_ASMF int32_t lj_vm_tobit(double x);
 #endif
 
 static LJ_AINLINE int32_t lj_num2bit(lua_Number n)
 {
-#if LJ_ARCH_HASFPU
+#if LJ_SOFTFP
+  return lj_vm_tobit(n);
+#else
   TValue o;
   o.n = n + 6755399441055744.0;  /* 2^52 + 2^51 */
   return (int32_t)o.u32.lo;
-#else
-  return lj_vm_tobit(n);
 #endif
 }
 

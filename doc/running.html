@@ -85,11 +85,11 @@ interactive mode, too.
 <p class="indent" style="color: #c00000;">
 Note: the beta test releases only install under the versioned name on
 POSIX systems (to avoid overwriting a previous version). You either need
-to type <tt>luajit-2.0.0-beta7</tt> to start it or create a symlink
+to type <tt>luajit-2.0.0-beta8</tt> to start it or create a symlink
 with a command like this:
 </p>
 <pre class="code" style="color: #c00000;">
-sudo ln -sf luajit-2.0.0-beta7&nbsp;/usr/local/bin/luajit
+sudo ln -sf luajit-2.0.0-beta8&nbsp;/usr/local/bin/luajit
 </pre>
 <p>
 Unlike previous versions <b>optimization is turned on by default</b> in
@@ -106,7 +106,39 @@ prints a short list of the available options. Please have a look at the
 for details.
 </p>
 <p>
-Two additional options control the behavior of LuaJIT:
+LuaJIT has some additional options:
+</p>
+
+<h3 id="opt_b"><tt>-b[options] input output</tt></h3>
+<p>
+This option saves or lists bytecode. The following additional options
+are accepted:
+</p>
+<ul>
+<li><tt>-l</tt> &mdash; Only list bytecode.</li>
+<li><tt>-s</tt> &mdash; Strip debug info (this is the default).</li>
+<li><tt>-g</tt> &mdash; Keep debug info.</li>
+<li><tt>-e chunk</tt> &mdash; Use chunk string as input.</li>
+<li><tt>-</tt> (a single minus sign) &mdash; Use stdin as input and/or stdout as output.</li>
+</ul>
+<p>
+Typical usage examples:
+</p>
+<pre class="code">
+luajit -b test.lua test.out                 # Save to test.out
+luajit -bg test.lua test.out                # Keep debug info
+luajit -be "print('hello world')" test.out  # Save cmdline script
+
+luajit -bl test.lua                         # List to stdout
+luajit -bl test.lua test.txt                # List to test.txt
+luajit -ble "print('hello world')"          # List cmdline script
+</pre>
+<p>
+Note: A file in bytecode format is auto-detected and can be loaded like
+any Lua source file. E.g. directly from the command line or with
+<tt>loadfile()</tt>, <tt>dofile()</tt> etc. See also
+<a href="extensions.html#string_dump">string.dump()</a> for information
+on bytecode portability and compatibility.
 </p>
 
 <h3 id="opt_j"><tt>-j cmd[=arg[,arg...]]</tt></h3>
@@ -135,7 +167,7 @@ itself. For a description of their options and output format, please
 read the comment block at the start of their source.
 They can be found in the <tt>lib</tt> directory of the source
 distribution or installed under the <tt>jit</tt> directory. By default
-this is <tt>/usr/local/share/luajit-2.0.0-beta7/jit</tt> on POSIX
+this is <tt>/usr/local/share/luajit-2.0.0-beta8/jit</tt> on POSIX
 systems.
 </p>
 

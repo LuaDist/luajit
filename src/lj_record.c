@@ -19,6 +19,7 @@
 #include "lj_ff.h"
 #include "lj_ir.h"
 #include "lj_jit.h"
+#include "lj_ircall.h"
 #include "lj_iropt.h"
 #include "lj_trace.h"
 #include "lj_record.h"
@@ -191,6 +192,7 @@ int lj_record_objcmp(jit_State *J, TRef a, TRef b, cTValue *av, cTValue *bv)
 /* Loop event. */
 typedef enum {
   LOOPEV_LEAVE,		/* Loop is left or not entered. */
+  LOOPEV_ENTERLO,	/* Loop is entered with a low iteration count left. */
   LOOPEV_ENTER		/* Loop is entered. */
 } LoopEvent;
 
@@ -316,23 +318,30 @@ static LoopEvent rec_for_iter(IROp *op, cTValue *o, int isforl)
   if (isforl)
     idxv += stepv;
   if (rec_for_direction(&o[FORL_STEP])) {
-    if (idxv <= stopv) { *op = IR_LE; return LOOPEV_ENTER; }
+    if (idxv <= stopv) {
+      *op = IR_LE;
+      return idxv + 2*stepv > stopv ? LOOPEV_ENTERLO : LOOPEV_ENTER;
+    }
     *op = IR_GT; return LOOPEV_LEAVE;
   } else {
-    if (stopv <= idxv) { *op = IR_GE; return LOOPEV_ENTER; }
+    if (stopv <= idxv) {
+      *op = IR_GE;
+      return idxv + 2*stepv < stopv ? LOOPEV_ENTERLO : LOOPEV_ENTER;
+    }
     *op = IR_LT; return LOOPEV_LEAVE;
   }
 }
 
 /* Record checks for FOR loop overflow and step direction. */
-static void rec_for_check(jit_State *J, IRType t, int dir, TRef stop, TRef step)
+static void rec_for_check(jit_State *J, IRType t, int dir,
+			  TRef stop, TRef step, int init)
 {
   if (!tref_isk(step)) {
     /* Non-constant step: need a guard for the direction. */
     TRef zero = (t == IRT_INT) ? lj_ir_kint(J, 0) : lj_ir_knum_zero(J);
     emitir(IRTG(dir ? IR_GE : IR_LT, t), step, zero);
     /* Add hoistable overflow checks for a narrowed FORL index. */
-    if (t == IRT_INT) {
+    if (init && t == IRT_INT) {
       if (tref_isk(stop)) {
 	/* Constant stop: optimize check away or to a range check for step. */
 	int32_t k = IR(tref_ref(stop))->i;
@@ -349,7 +358,7 @@ static void rec_for_check(jit_State *J, IRType t, int dir, TRef stop, TRef step)
 	emitir(IRTI(IR_USE), tr, 0);  /* ADDOV is weak. Avoid dead result. */
       }
     }
-  } else if (t == IRT_INT && !tref_isk(stop)) {
+  } else if (init && t == IRT_INT && !tref_isk(stop)) {
     /* Constant step: optimize overflow check to a range check for stop. */
     int32_t k = IR(tref_ref(step))->i;
     k = (int32_t)(dir ? 0x7fffffff : 0x80000000) - k;
@@ -376,11 +385,11 @@ static void rec_for_loop(jit_State *J, const BCIns *fori, ScEvEntry *scev,
   scev->dir = dir;
   scev->stop = tref_ref(stop);
   scev->step = tref_ref(step);
-  if (init)
-    rec_for_check(J, t, dir, stop, step);
+  rec_for_check(J, t, dir, stop, step, init);
   scev->start = tref_ref(find_kinit(J, fori, ra+FORL_IDX, IRT_INT));
   tc = (LJ_DUALNUM &&
-	!(scev->start && irref_isk(scev->stop) && irref_isk(scev->step))) ?
+	!(scev->start && irref_isk(scev->stop) && irref_isk(scev->step) &&
+	  tvisint(&tv[FORL_IDX]) == (t == IRT_INT))) ?
 	IRSLOAD_TYPECHECK : 0;
   if (tc) {
     J->base[ra+FORL_STOP] = stop;
@@ -430,7 +439,7 @@ static LoopEvent rec_for(jit_State *J, const BCIns *fori, int isforl)
 	tr[i] = emitir(IRTG(IR_STRTO, IRT_NUM), tr[i], 0);
       if (t == IRT_INT) {
 	if (!tref_isinteger(tr[i]))
-	  tr[i] = emitir(IRTI(IR_CONV), tr[i], IRCONV_INT_NUM|IRCONV_CHECK);
+	  tr[i] = emitir(IRTGI(IR_CONV), tr[i], IRCONV_INT_NUM|IRCONV_CHECK);
       } else {
 	if (!tref_isnum(tr[i]))
 	  tr[i] = emitir(IRTN(IR_CONV), tr[i], IRCONV_NUM_INT);
@@ -438,7 +447,8 @@ static LoopEvent rec_for(jit_State *J, const BCIns *fori, int isforl)
     }
     tr[FORL_EXT] = tr[FORL_IDX];
     stop = tr[FORL_STOP];
-    rec_for_check(J, t, rec_for_direction(&tv[FORL_STEP]), stop, tr[FORL_STEP]);
+    rec_for_check(J, t, rec_for_direction(&tv[FORL_STEP]),
+		  stop, tr[FORL_STEP], 1);
   }
 
   ev = rec_for_iter(&op, tv, isforl);
@@ -522,7 +532,8 @@ static void rec_loop_interp(jit_State *J, const BCIns *pc, LoopEvent ev)
       */
       if (!innerloopleft(J, pc))
 	lj_trace_err(J, LJ_TRERR_LINNER);  /* Root trace hit an inner loop. */
-      if ((J->loopref && J->cur.nins - J->loopref > 24) || --J->loopunroll < 0)
+      if ((ev != LOOPEV_ENTERLO &&
+	   J->loopref && J->cur.nins - J->loopref > 24) || --J->loopunroll < 0)
 	lj_trace_err(J, LJ_TRERR_LUNROLL);  /* Limit loop unrolling. */
       J->loopref = J->cur.nins;
     }
@@ -809,7 +820,7 @@ nocheck:
   return 0;  /* No metamethod. */
 }
 
-/* Record call to arithmetic metamethod (and MM_len). */
+/* Record call to arithmetic metamethod. */
 static TRef rec_mm_arith(jit_State *J, RecordIndex *ix, MMS mm)
 {
   /* Set up metamethod call first to save ix->tab and ix->tabv. */
@@ -820,7 +831,7 @@ static TRef rec_mm_arith(jit_State *J, RecordIndex *ix, MMS mm)
   copyTV(J->L, basev+1, &ix->tabv);
   copyTV(J->L, basev+2, &ix->keyv);
   if (!lj_record_mm_lookup(J, ix, mm)) {  /* Lookup mm on 1st operand. */
-    if (mm != MM_len) {
+    if (mm != MM_unm) {
       ix->tab = ix->key;
       copyTV(J->L, &ix->tabv, &ix->keyv);
       if (lj_record_mm_lookup(J, ix, mm))  /* Lookup mm on 2nd operand. */
@@ -832,6 +843,34 @@ ok:
   base[0] = ix->mobj;
   copyTV(J->L, basev+0, &ix->mobjv);
   lj_record_call(J, func, 2);
+  return 0;  /* No result yet. */
+}
+
+/* Record call to __len metamethod. */
+static TRef rec_mm_len(jit_State *J, TRef tr, TValue *tv)
+{
+  RecordIndex ix;
+  ix.tab = tr;
+  copyTV(J->L, &ix.tabv, tv);
+  if (lj_record_mm_lookup(J, &ix, MM_len)) {
+    BCReg func = rec_mm_prep(J, lj_cont_ra);
+    TRef *base = J->base + func;
+    TValue *basev = J->L->base + func;
+    base[0] = ix.mobj; copyTV(J->L, basev+0, &ix.mobjv);
+    base[1] = tr; copyTV(J->L, basev+1, tv);
+#ifdef LUAJIT_ENABLE_LUA52COMPAT
+    base[2] = tr; copyTV(J->L, basev+2, tv);
+#else
+    base[2] = TREF_NIL; setnilV(basev+2);
+#endif
+    lj_record_call(J, func, 2);
+  } else {
+#ifdef LUAJIT_ENABLE_LUA52COMPAT
+    if (tref_istab(tr))
+      return lj_ir_call(J, IRCALL_lj_tab_len, tr);
+#endif
+    lj_trace_err(J, LJ_TRERR_NOMM);
+  }
   return 0;  /* No result yet. */
 }
 
@@ -1266,7 +1305,7 @@ static void rec_func_setup(jit_State *J)
 {
   GCproto *pt = J->pt;
   BCReg s, numparams = pt->numparams;
-  if ((pt->flags & PROTO_NO_JIT))
+  if ((pt->flags & PROTO_NOJIT))
     lj_trace_err(J, LJ_TRERR_CJITOFF);
   if (J->baseslot + pt->framesize >= LJ_MAX_JSLOTS)
     lj_trace_err(J, LJ_TRERR_STACKOV);
@@ -1282,7 +1321,7 @@ static void rec_func_vararg(jit_State *J)
 {
   GCproto *pt = J->pt;
   BCReg s, fixargs, vframe = J->maxslot+1;
-  lua_assert((pt->flags & PROTO_IS_VARARG));
+  lua_assert((pt->flags & PROTO_VARARG));
   if (J->baseslot + vframe + pt->framesize >= LJ_MAX_JSLOTS)
     lj_trace_err(J, LJ_TRERR_STACKOV);
   J->base[vframe-1] = J->base[-1];  /* Copy function up. */
@@ -1657,17 +1696,14 @@ void lj_record_ins(jit_State *J)
     break;
 
   case BC_LEN:
-    if (tref_isstr(rc)) {
+    if (tref_isstr(rc))
       rc = emitir(IRTI(IR_FLOAD), rc, IRFL_STR_LEN);
-    } else if (tref_istab(rc)) {
+#ifndef LUAJIT_ENABLE_LUA52COMPAT
+    else if (tref_istab(rc))
       rc = lj_ir_call(J, IRCALL_lj_tab_len, rc);
-    } else {
-      ix.tab = rc;
-      copyTV(J->L, &ix.tabv, rcv);
-      ix.key = TREF_NIL;
-      setnilV(&ix.keyv);
-      rc = rec_mm_arith(J, &ix, MM_len);
-    }
+#endif
+    else
+      rc = rec_mm_len(J, rc, rcv);
     break;
 
   /* -- Arithmetic ops ---------------------------------------------------- */
@@ -1705,7 +1741,7 @@ void lj_record_ins(jit_State *J)
   case BC_MODVN: case BC_MODVV:
   recmod:
     if (tref_isnumber_str(rb) && tref_isnumber_str(rc))
-      rc = lj_opt_narrow_mod(J, rb, rc);
+      rc = lj_opt_narrow_mod(J, rb, rc, rcv);
     else
       rc = rec_mm_arith(J, &ix, MM_mod);
     break;
@@ -1983,6 +2019,7 @@ static void rec_setup_side(jit_State *J, GCtrace *T)
     IRRef ref = snap_ref(sn);
     BCReg s = snap_slot(sn);
     IRIns *ir = &T->ir[ref];
+    IRType t = irt_type(ir->t);
     TRef tr;
     /* The bloom filter avoids O(nent^2) overhead for de-duping slots. */
     if (bloomtest(seen, ref)) {
@@ -1996,7 +2033,7 @@ static void rec_setup_side(jit_State *J, GCtrace *T)
     bloomset(seen, ref);
     switch ((IROp)ir->o) {
     /* Only have to deal with constants that can occur in stack slots. */
-    case IR_KPRI: tr = TREF_PRI(irt_type(ir->t)); break;
+    case IR_KPRI: tr = TREF_PRI(t); break;
     case IR_KINT: tr = lj_ir_kint(J, ir->i); break;
     case IR_KGC:  tr = lj_ir_kgc(J, ir_kgc(ir), irt_t(ir->t)); break;
     case IR_KNUM: tr = lj_ir_k64(J, IR_KNUM, ir_knum(ir)); break;
@@ -2004,13 +2041,14 @@ static void rec_setup_side(jit_State *J, GCtrace *T)
     case IR_KPTR:  tr = lj_ir_kptr(J, ir_kptr(ir)); break;  /* Continuation. */
     /* Inherited SLOADs don't need a guard or type check. */
     case IR_SLOAD:
-      tr = emitir_raw(ir->ot & ~IRT_GUARD, s,
+      if (LJ_SOFTFP && (sn & SNAP_SOFTFPNUM)) t = IRT_NUM;
+      tr = emitir_raw(IRT(IR_SLOAD, t), s,
 	     (ir->op2&IRSLOAD_READONLY) | IRSLOAD_INHERIT|IRSLOAD_PARENT);
       break;
     /* Parent refs are already typed and don't need a guard. */
     default:
-      tr = emitir_raw(IRT(IR_SLOAD, irt_type(ir->t)), s,
-		      IRSLOAD_INHERIT|IRSLOAD_PARENT);
+      if (LJ_SOFTFP && (sn & SNAP_SOFTFPNUM)) t = IRT_NUM;
+      tr = emitir_raw(IRT(IR_SLOAD, t), s, IRSLOAD_INHERIT|IRSLOAD_PARENT);
       break;
     }
   setslot:

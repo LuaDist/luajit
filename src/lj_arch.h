@@ -65,7 +65,8 @@
 #elif defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || \
       defined(__NetBSD__) || defined(__OpenBSD__)
 #define LUAJIT_OS	LUAJIT_OS_BSD
-#elif defined(__solaris__) || defined(__CYGWIN__)
+#elif (defined(__sun__) && defined(__svr4__)) || defined(__solaris__) || \
+      defined(__CYGWIN__)
 #define LUAJIT_OS	LUAJIT_OS_POSIX
 #else
 #define LUAJIT_OS	LUAJIT_OS_OTHER
@@ -119,6 +120,7 @@
 #define LJ_TARGET_X64		1
 #define LJ_TARGET_X86ORX64	1
 #define LJ_TARGET_EHRETREG	0
+#define LJ_TARGET_JUMPRANGE	31	/* +-2^31 = +-2GB */
 #define LJ_TARGET_MASKSHIFT	1
 #define LJ_TARGET_MASKROT	1
 #define LJ_ARCH_DUALNUM		1
@@ -133,10 +135,15 @@
 #define LJ_ABI_EABI		1
 #define LJ_TARGET_ARM		1
 #define LJ_TARGET_EHRETREG	0
+#define LJ_TARGET_JUMPRANGE	25	/* +-2^25 = +-32MB */
 #define LJ_TARGET_MASKSHIFT	0
 #define LJ_TARGET_MASKROT	1
+#define LJ_TARGET_UNIFYROT	2	/* Want only IR_BROR. */
 #define LJ_ARCH_DUALNUM		2
+#if LJ_TARGET_OSX
+/* Runtime code generation is restricted on iOS. Complain to Apple, not me. */
 #define LJ_ARCH_NOJIT		1
+#endif
 
 #elif LUAJIT_TARGET == LUAJIT_ARCH_PPC
 
@@ -153,8 +160,10 @@
 #define LJ_TARGET_PPC		1
 #define LJ_TARGET_PPCSPE	1
 #define LJ_TARGET_EHRETREG	3
+#define LJ_TARGET_JUMPRANGE	25	/* +-2^25 = +-32MB */
 #define LJ_TARGET_MASKSHIFT	0
 #define LJ_TARGET_MASKROT	1
+#define LJ_TARGET_UNIFYROT	1	/* Want only IR_BROL. */
 #define LJ_ARCH_DUALNUM		0
 #define LJ_ARCH_NOFFI		1	/* NYI: comparisons, calls. */
 #define LJ_ARCH_NOJIT		1
@@ -231,6 +240,8 @@
 #else
 #define LJ_HASFFI		1
 #endif
+
+#define LJ_SOFTFP		(!LJ_ARCH_HASFPU)
 
 #if LJ_ARCH_ENDIAN == LUAJIT_BE
 #define LJ_LE			0

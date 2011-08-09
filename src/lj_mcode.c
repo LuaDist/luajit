@@ -156,23 +156,30 @@ static void mcode_protect(jit_State *J, int prot)
 
 /* -- MCode area allocation ----------------------------------------------- */
 
-#if LJ_64
+#if LJ_TARGET_X64
+#define mcode_validptr(p)	((p) && (uintptr_t)(p) < (uintptr_t)1<<47)
+#else
+#define mcode_validptr(p)	((p) && (uintptr_t)(p) < 0xffff0000)
+#endif
+
+#ifdef LJ_TARGET_JUMPRANGE
 
 /* Get memory within relative jump distance of our code in 64 bit mode. */
 static void *mcode_alloc(jit_State *J, size_t sz)
 {
   /* Target an address in the static assembler code (64K aligned).
-  ** Try addresses within a distance of target-1GB+1MB .. target+1GB-1MB.
+  ** Try addresses within a distance of target-range/2+1MB..target+range/2-1MB.
   */
   uintptr_t target = (uintptr_t)(void *)lj_vm_exit_handler & ~(uintptr_t)0xffff;
-  const uintptr_t range = (1u<<31) - (1u << 21);
+  const uintptr_t range = (1u << LJ_TARGET_JUMPRANGE) - (1u << 21);
   /* First try a contiguous area below the last one. */
-  uintptr_t hint = (uintptr_t)J->mcarea - sz;
+  uintptr_t hint = J->mcarea ? (uintptr_t)J->mcarea - sz : 0;
   int i;
   for (i = 0; i < 32; i++) {  /* 32 attempts ought to be enough ... */
-    if (hint && hint < (uintptr_t)1<<47) {
+    if (mcode_validptr(hint)) {
       void *p = mcode_alloc_at(J, hint, sz, MCPROT_GEN);
-      if (p && (uintptr_t)p < (uintptr_t)1<<47) {
+
+      if (mcode_validptr(p)) {
 	if ((uintptr_t)p + sz - target < range || target - (uintptr_t)p < range)
 	  return p;
 	mcode_free(J, p, sz);  /* Free badly placed area. */
@@ -190,7 +197,7 @@ static void *mcode_alloc(jit_State *J, size_t sz)
 
 #else
 
-/* All 32 bit memory addresses are reachable by relative jumps on x86. */
+/* All memory addresses are reachable by relative jumps. */
 #define mcode_alloc(J, sz)	mcode_alloc_at((J), 0, (sz), MCPROT_GEN)
 
 #endif
@@ -274,7 +281,7 @@ MCode *lj_mcode_patch(jit_State *J, MCode *ptr, int finish)
   } else {
     MCode *mc = J->mcarea;
     /* Try current area first to use the protection cache. */
-    if (ptr >= mc && ptr < mc + J->szmcarea) {
+    if (ptr >= mc && ptr < (MCode *)((char *)mc + J->szmcarea)) {
       mcode_protect(J, MCPROT_GEN);
       return mc;
     }
@@ -282,7 +289,7 @@ MCode *lj_mcode_patch(jit_State *J, MCode *ptr, int finish)
     for (;;) {
       mc = ((MCLink *)mc)->next;
       lua_assert(mc != NULL);
-      if (ptr >= mc && ptr < mc + ((MCLink *)mc)->size) {
+      if (ptr >= mc && ptr < (MCode *)((char *)mc + ((MCLink *)mc)->size)) {
 	mcode_setprot(mc, ((MCLink *)mc)->size, MCPROT_GEN);
 	return mc;
       }

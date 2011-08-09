@@ -18,6 +18,7 @@
 #include "lj_ff.h"
 #include "lj_ir.h"
 #include "lj_jit.h"
+#include "lj_ircall.h"
 #include "lj_iropt.h"
 #include "lj_trace.h"
 #include "lj_record.h"
@@ -433,11 +434,26 @@ static void LJ_FASTCALL recff_math_unary(jit_State *J, RecordFFData *rd)
   J->base[0] = emitir(IRTN(IR_FPMATH), lj_ir_tonum(J, J->base[0]), rd->data);
 }
 
-/* Record binary math.* functions math.atan2 and math.ldexp. */
-static void LJ_FASTCALL recff_math_binary(jit_State *J, RecordFFData *rd)
+/* Record math.atan2. */
+static void LJ_FASTCALL recff_math_atan2(jit_State *J, RecordFFData *rd)
 {
   TRef tr = lj_ir_tonum(J, J->base[0]);
-  J->base[0] = emitir(IRTN(rd->data), tr, lj_ir_tonum(J, J->base[1]));
+  TRef tr2 = lj_ir_tonum(J, J->base[1]);
+  J->base[0] = emitir(IRTN(IR_ATAN2), tr, tr2);
+  UNUSED(rd);
+}
+
+/* Record math.ldexp. */
+static void LJ_FASTCALL recff_math_ldexp(jit_State *J, RecordFFData *rd)
+{
+  TRef tr = lj_ir_tonum(J, J->base[0]);
+#if LJ_TARGET_X86ORX64
+  TRef tr2 = lj_ir_tonum(J, J->base[1]);
+#else
+  TRef tr2 = lj_opt_narrow_toint(J, J->base[1]);
+#endif
+  J->base[0] = emitir(IRTN(IR_LDEXP), tr, tr2);
+  UNUSED(rd);
 }
 
 /* Record math.asin, math.acos, math.atan. */
@@ -564,10 +580,17 @@ static void LJ_FASTCALL recff_bit_shift(jit_State *J, RecordFFData *rd)
 {
   TRef tr = lj_opt_narrow_tobit(J, J->base[0]);
   TRef tsh = lj_opt_narrow_tobit(J, J->base[1]);
-  if (!(rd->data < IR_BROL ? LJ_TARGET_MASKSHIFT : LJ_TARGET_MASKROT) &&
+  IROp op = (IROp)rd->data;
+  if (!(op < IR_BROL ? LJ_TARGET_MASKSHIFT : LJ_TARGET_MASKROT) &&
       !tref_isk(tsh))
     tsh = emitir(IRTI(IR_BAND), tsh, lj_ir_kint(J, 31));
-  J->base[0] = emitir(IRTI(rd->data), tr, tsh);
+#ifdef LJ_TARGET_UNIFYROT
+  if (op == (LJ_TARGET_UNIFYROT == 1 ? IR_BROR : IR_BROL)) {
+    op = LJ_TARGET_UNIFYROT == 1 ? IR_BROL : IR_BROR;
+    tsh = emitir(IRTI(IR_NEG), tsh, tsh);
+  }
+#endif
+  J->base[0] = emitir(IRTI(op), tr, tsh);
 }
 
 /* -- String library fast functions --------------------------------------- */

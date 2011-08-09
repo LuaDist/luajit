@@ -21,6 +21,8 @@
 #define FPRDEF(_) \
   _(XMM0) _(XMM1) _(XMM2) _(XMM3) _(XMM4) _(XMM5) _(XMM6) _(XMM7)
 #endif
+#define VRIDDEF(_) \
+  _(MRM)
 
 #define RIDENUM(name)	RID_##name,
 
@@ -41,10 +43,10 @@ enum {
   /* These definitions must match with the *.dasc file(s): */
   RID_BASE = RID_EDX,		/* Interpreter BASE. */
 #if LJ_64 && !LJ_ABI_WIN
-  RID_PC = RID_EBX,		/* Interpreter PC. */
+  RID_LPC = RID_EBX,		/* Interpreter PC. */
   RID_DISPATCH = RID_R14D,	/* Interpreter DISPATCH table. */
 #else
-  RID_PC = RID_ESI,		/* Interpreter PC. */
+  RID_LPC = RID_ESI,		/* Interpreter PC. */
   RID_DISPATCH = RID_EBX,	/* Interpreter DISPATCH table. */
 #endif
 
@@ -63,6 +65,7 @@ enum {
 #define RSET_GPR	(RSET_RANGE(RID_MIN_GPR, RID_MAX_GPR)-RID2RSET(RID_ESP))
 #define RSET_FPR	(RSET_RANGE(RID_MIN_FPR, RID_MAX_FPR))
 #define RSET_ALL	(RSET_GPR|RSET_FPR)
+#define RSET_INIT	RSET_ALL
 
 #if LJ_64
 /* Note: this requires the use of FORCE_REX! */
@@ -80,6 +83,7 @@ enum {
   (RSET_ACD|RSET_RANGE(RID_R8D, RID_R11D+1)|RSET_RANGE(RID_XMM0, RID_XMM5+1))
 #define REGARG_GPRS \
   (RID_ECX|((RID_EDX|((RID_R8D|(RID_R9D<<5))<<5))<<5))
+#define REGARG_NUMGPR	4
 #define REGARG_FIRSTFPR	RID_XMM0
 #define REGARG_LASTFPR	RID_XMM3
 #define STACKARG_OFS	(4*8)
@@ -90,6 +94,7 @@ enum {
 #define REGARG_GPRS \
   (RID_EDI|((RID_ESI|((RID_EDX|((RID_ECX|((RID_R8D|(RID_R9D \
    <<5))<<5))<<5))<<5))<<5))
+#define REGARG_NUMGPR	6
 #define REGARG_FIRSTFPR	RID_XMM0
 #define REGARG_LASTFPR	RID_XMM7
 #define STACKARG_OFS	0
@@ -98,6 +103,7 @@ enum {
 /* Common x86 ABI. */
 #define RSET_SCRATCH	(RSET_ACD|RSET_FPR)
 #define REGARG_GPRS	(RID_ECX|(RID_EDX<<5))  /* Fastcall only. */
+#define REGARG_NUMGPR	2  /* Fastcall only. */
 #define STACKARG_OFS	0
 #endif
 
@@ -130,6 +136,7 @@ enum {
 #endif
 
 #define sps_scale(slot)		(4 * (int32_t)(slot))
+#define sps_align(slot)		(((slot) - SPS_FIXED + 3) & ~3)
 
 /* -- Exit state ---------------------------------------------------------- */
 
@@ -139,6 +146,10 @@ typedef struct {
   intptr_t gpr[RID_NUM_GPR];	/* General-purpose registers. */
   int32_t spill[256];		/* Spill slots. */
 } ExitState;
+
+/* Limited by the range of a short fwd jump (127): (2+2)*(32-1)-2 = 122. */
+#define EXITSTUB_SPACING	(2+2)
+#define EXITSTUBS_PER_GROUP	32
 
 /* -- x86 ModRM operand encoding ------------------------------------------ */
 

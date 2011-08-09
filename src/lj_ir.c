@@ -19,6 +19,7 @@
 #include "lj_tab.h"
 #include "lj_ir.h"
 #include "lj_jit.h"
+#include "lj_ircall.h"
 #include "lj_iropt.h"
 #include "lj_trace.h"
 #if LJ_HASFFI
@@ -26,6 +27,7 @@
 #include "lj_cdata.h"
 #include "lj_carith.h"
 #endif
+#include "lj_vm.h"
 #include "lj_lib.h"
 
 /* Some local macros to save typing. Undef'd at the end. */
@@ -52,7 +54,6 @@ IRCALLDEF(IRCALLCI)
 #undef IRCALLCI
   { NULL, 0 }
 };
-
 
 /* -- IR emitter ---------------------------------------------------------- */
 

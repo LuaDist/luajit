@@ -12,6 +12,7 @@
 
 #include "lj_gc.h"
 #include "lj_err.h"
+#include "lj_debug.h"
 #include "lj_str.h"
 #include "lj_frame.h"
 #include "lj_state.h"
@@ -97,16 +98,14 @@ static void perftools_addtrace(GCtrace *T)
   static FILE *fp;
   GCproto *pt = &gcref(T->startpt)->pt;
   const BCIns *startpc = mref(T->startpc, const BCIns);
-  const char *name = strdata(proto_chunkname(pt));
+  const char *name = proto_chunknamestr(pt);
   BCLine lineno;
   if (name[0] == '@' || name[0] == '=')
     name++;
   else
     name = "(string)";
-  if (startpc >= proto_bc(pt) && startpc < proto_bc(pt) + pt->sizebc)
-    lineno = proto_line(pt, proto_bcpos(pt, startpc));
-  else
-    lineno = proto_line(pt, 0);  /* Wrong, but better than nothing. */
+  lua_assert(startpc >= proto_bc(pt) && startpc < proto_bc(pt) + pt->sizebc);
+  lineno = lj_debug_line(pt, proto_bcpos(pt, startpc));
   if (!fp) {
     char fname[40];
     sprintf(fname, "/tmp/perf-%d.map", getpid());
@@ -164,10 +163,10 @@ void LJ_FASTCALL lj_trace_free(global_State *g, GCtrace *T)
 /* Re-enable compiling a prototype by unpatching any modified bytecode. */
 void lj_trace_reenableproto(GCproto *pt)
 {
-  if ((pt->flags & PROTO_HAS_ILOOP)) {
+  if ((pt->flags & PROTO_ILOOP)) {
     BCIns *bc = proto_bc(pt);
     BCPos i, sizebc = pt->sizebc;;
-    pt->flags &= ~PROTO_HAS_ILOOP;
+    pt->flags &= ~PROTO_ILOOP;
     if (bc_op(bc[0]) == BC_IFUNCF)
       setbc_op(&bc[0], BC_FUNCF);
     for (i = 1; i < sizebc; i++) {
@@ -324,7 +323,7 @@ void lj_trace_freestate(global_State *g)
 static void blacklist_pc(GCproto *pt, BCIns *pc)
 {
   setbc_op(pc, (int)bc_op(*pc)+(int)BC_ILOOP-(int)BC_LOOP);
-  pt->flags |= PROTO_HAS_ILOOP;
+  pt->flags |= PROTO_ILOOP;
 }
 
 /* Penalize a bytecode instruction. */
@@ -360,13 +359,13 @@ static void trace_start(jit_State *J)
   lua_State *L;
   TraceNo traceno;
 
-  if ((J->pt->flags & PROTO_NO_JIT)) {  /* JIT disabled for this proto? */
+  if ((J->pt->flags & PROTO_NOJIT)) {  /* JIT disabled for this proto? */
     if (J->parent == 0) {
       /* Lazy bytecode patching to disable hotcount events. */
       lua_assert(bc_op(*J->pc) == BC_FORL || bc_op(*J->pc) == BC_ITERL ||
 		 bc_op(*J->pc) == BC_LOOP || bc_op(*J->pc) == BC_FUNCF);
       setbc_op(J->pc, (int)bc_op(*J->pc)+(int)BC_ILOOP-(int)BC_LOOP);
-      J->pt->flags |= PROTO_HAS_ILOOP;
+      J->pt->flags |= PROTO_ILOOP;
     }
     J->state = LJ_TRACE_IDLE;  /* Silently ignored. */
     return;
@@ -503,7 +502,7 @@ static int trace_abort(jit_State *J)
   }
   /* Penalize or blacklist starting bytecode instruction. */
   if (J->parent == 0 && !bc_isret(bc_op(J->cur.startins)))
-    penalty_pc(J, &gcref(J->cur.startpt)->pt, (BCIns *)J->startpc, e);
+    penalty_pc(J, &gcref(J->cur.startpt)->pt, mref(J->cur.startpc, BCIns), e);
 
   /* Is there anything to abort? */
   traceno = J->cur.traceno;
@@ -638,6 +637,7 @@ void lj_trace_ins(jit_State *J, const BCIns *pc)
 /* A hotcount triggered. Start recording a root trace. */
 void LJ_FASTCALL lj_trace_hot(jit_State *J, const BCIns *pc)
 {
+  ERRNO_SAVE
   /* Note: pc is the interpreter bytecode PC here. It's offset by 1. */
   hotcount_set(J2GG(J), pc, J->param[JIT_P_hotloop]+1);  /* Reset hotcount. */
   /* Only start a new trace if not recording or inside __gc call or vmevent. */
@@ -648,6 +648,7 @@ void LJ_FASTCALL lj_trace_hot(jit_State *J, const BCIns *pc)
     J->state = LJ_TRACE_START;
     lj_trace_ins(J, pc-1);
   }
+  ERRNO_RESTORE
 }
 
 /* Check for a hot side exit. If yes, start recording a side trace. */
@@ -681,14 +682,66 @@ static TValue *trace_exit_cp(lua_State *L, lua_CFunction dummy, void *ud)
   return NULL;
 }
 
+#ifndef LUAJIT_DISABLE_VMEVENT
+/* Push all registers from exit state. */
+static void trace_exit_regs(lua_State *L, ExitState *ex)
+{
+  int32_t i;
+  setintV(L->top++, RID_NUM_GPR);
+  setintV(L->top++, RID_NUM_FPR);
+  for (i = 0; i < RID_NUM_GPR; i++) {
+    if (sizeof(ex->gpr[i]) == sizeof(int32_t))
+      setintV(L->top++, (int32_t)ex->gpr[i]);
+    else
+      setnumV(L->top++, (lua_Number)ex->gpr[i]);
+  }
+#if !LJ_SOFTFP
+  for (i = 0; i < RID_NUM_FPR; i++) {
+    setnumV(L->top, ex->fpr[i]);
+    if (LJ_UNLIKELY(tvisnan(L->top)))
+      setnanV(L->top);
+    L->top++;
+  }
+#endif
+}
+#endif
+
+#ifdef EXITSTATE_PCREG
+/* Determine trace number from pc of exit instruction. */
+static TraceNo trace_exit_find(jit_State *J, MCode *pc)
+{
+  TraceNo traceno;
+  for (traceno = 1; traceno < J->sizetrace; traceno++) {
+    GCtrace *T = traceref(J, traceno);
+    if (T && pc >= T->mcode && pc < (MCode *)((char *)T->mcode + T->szmcode)) {
+      if (J->exitno == T->nsnap) {  /* Treat stack check like a parent exit. */
+	lua_assert(T->root != 0);
+	traceno = T->ir[REF_BASE].op1;
+	J->exitno = T->ir[REF_BASE].op2;
+      }
+      return traceno;
+    }
+  }
+  lua_assert(0);
+  return 0;
+}
+#endif
+
 /* A trace exited. Restore interpreter state. */
 int LJ_FASTCALL lj_trace_exit(jit_State *J, void *exptr)
 {
+  ERRNO_SAVE
   lua_State *L = J->L;
+  ExitState *ex = (ExitState *)exptr;
   ExitDataCP exd;
   int errcode;
   const BCIns *pc;
   void *cf;
+#ifdef EXITSTATE_PCREG
+  J->parent = trace_exit_find(J, (MCode *)(intptr_t)ex->gpr[EXITSTATE_PCREG]);
+#endif
+  lua_assert(traceref(J, J->parent) != NULL &&
+	     J->exitno < traceref(J, J->parent)->nsnap);
   exd.J = J;
   exd.exptr = exptr;
   errcode = lj_vm_cpcall(L, NULL, &exd, trace_exit_cp);
@@ -696,25 +749,10 @@ int LJ_FASTCALL lj_trace_exit(jit_State *J, void *exptr)
     return -errcode;  /* Return negated error code. */
 
   lj_vmevent_send(L, TEXIT,
-    ExitState *ex = (ExitState *)exptr;
-    uint32_t i;
     lj_state_checkstack(L, 4+RID_NUM_GPR+RID_NUM_FPR+LUA_MINSTACK);
     setintV(L->top++, J->parent);
     setintV(L->top++, J->exitno);
-    setintV(L->top++, RID_NUM_GPR);
-    setintV(L->top++, RID_NUM_FPR);
-    for (i = 0; i < RID_NUM_GPR; i++) {
-      if (sizeof(ex->gpr[i]) == sizeof(int32_t))
-	setintV(L->top++, (int32_t)ex->gpr[i]);
-      else
-	setnumV(L->top++, (lua_Number)ex->gpr[i]);
-    }
-    for (i = 0; i < RID_NUM_FPR; i++) {
-      setnumV(L->top, ex->fpr[i]);
-      if (LJ_UNLIKELY(tvisnan(L->top)))
-	setnanV(L->top);
-      L->top++;
-    }
+    trace_exit_regs(L, ex);
   );
 
   pc = exd.pc;
@@ -738,6 +776,7 @@ int LJ_FASTCALL lj_trace_exit(jit_State *J, void *exptr)
     }
   }
   /* Return MULTRES or 0. */
+  ERRNO_RESTORE
   switch (bc_op(*pc)) {
   case BC_CALLM: case BC_CALLMT:
     return (int)((BCReg)(L->top - L->base) - bc_a(*pc) - bc_c(*pc));

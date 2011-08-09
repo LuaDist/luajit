@@ -34,8 +34,6 @@
 /* Macros to set GCobj colors and flags. */
 #define white2gray(x)		((x)->gch.marked &= (uint8_t)~LJ_GC_WHITES)
 #define gray2black(x)		((x)->gch.marked |= LJ_GC_BLACK)
-#define makewhite(g, x) \
-  ((x)->gch.marked = ((x)->gch.marked & (uint8_t)~LJ_GC_COLORS) | curwhite(g))
 #define isfinalized(u)		((u)->marked & LJ_GC_FINALIZED)
 #define markfinalized(u)	((u)->marked |= LJ_GC_FINALIZED)
 
@@ -206,7 +204,7 @@ static void gc_traverse_func(global_State *g, GCfunc *fn)
   gc_markobj(g, tabref(fn->c.env));
   if (isluafunc(fn)) {
     uint32_t i;
-    lua_assert(fn->l.nupvalues == funcproto(fn)->sizeuv);
+    lua_assert(fn->l.nupvalues <= funcproto(fn)->sizeuv);
     gc_markobj(g, funcproto(fn));
     for (i = 0; i < fn->l.nupvalues; i++)  /* Mark Lua function upvalues. */
       gc_markobj(g, &gcref(fn->l.uvptr[i])->uv);
@@ -259,10 +257,6 @@ static void gc_traverse_proto(global_State *g, GCproto *pt)
   gc_mark_str(proto_chunkname(pt));
   for (i = -(ptrdiff_t)pt->sizekgc; i < 0; i++)  /* Mark collectable consts. */
     gc_markobj(g, proto_kgc(pt, i));
-  for (i = 0; i < (ptrdiff_t)pt->sizeuv; i++)  /* Mark upvalue names. */
-    gc_mark_str(proto_uvname(pt, i));
-  for (i = 0; i < (ptrdiff_t)pt->sizevarinfo; i++)  /* Mark names of locals. */
-    gc_mark_str(gco2str(gcref(proto_varinfo(pt)[i].name)));
 #if LJ_HASJIT
   if (pt->trace) gc_marktrace(g, pt->trace);
 #endif
@@ -500,7 +494,8 @@ static void gc_finalize(lua_State *L)
     /* Add cdata back to the GC list and make it white. */
     setgcrefr(o->gch.nextgc, g->gc.root);
     setgcref(g->gc.root, o);
-    o->gch.marked = curwhite(g);
+    makewhite(g, o);
+    o->gch.marked &= (uint8_t)~LJ_GC_CDATA_FIN;
     /* Resolve finalizer. */
     setcdataV(L, &tmp, gco2cd(o));
     tv = lj_tab_set(L, ctype_ctsG(g)->finalizer, &tmp);
@@ -544,7 +539,8 @@ void lj_gc_finalize_cdata(lua_State *L)
       if (!tvisnil(&node[i].val) && tviscdata(&node[i].key)) {
 	GCobj *o = gcV(&node[i].key);
 	TValue tmp;
-	o->gch.marked = curwhite(g);
+	makewhite(g, o);
+	o->gch.marked &= (uint8_t)~LJ_GC_CDATA_FIN;
 	copyTV(L, &tmp, &node[i].val);
 	setnilV(&node[i].val);
 	gc_call_finalizer(g, L, &tmp, o);
@@ -678,7 +674,6 @@ int LJ_FASTCALL lj_gc_step(lua_State *L)
   do {
     lim -= (MSize)gc_onestep(L);
     if (g->gc.state == GCSpause) {
-      lua_assert(g->gc.total >= g->gc.estimate);
       g->gc.threshold = (g->gc.estimate/100) * g->gc.pause;
       g->vmstate = ostate;
       return 1;  /* Finished a GC cycle. */

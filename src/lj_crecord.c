@@ -20,6 +20,7 @@
 #include "lj_clib.h"
 #include "lj_ir.h"
 #include "lj_jit.h"
+#include "lj_ircall.h"
 #include "lj_iropt.h"
 #include "lj_trace.h"
 #include "lj_record.h"
@@ -199,7 +200,7 @@ static TRef crec_ct_ct(jit_State *J, CType *d, CType *s, TRef dp, TRef sp,
 		    (sinfo & CTF_UNSIGNED) ? 0 : IRCONV_SEXT);
     else if (dsize < 8 && ssize == 8)  /* Truncate from 64 bit integer. */
       sp = emitconv(sp, dsize < 4 ? IRT_INT : dt, st, 0);
-    else if (ssize <= 4)
+    else if (st == IRT_INT)
       sp = lj_opt_narrow_toint(J, sp);
   xstore:
     if (dt == IRT_I64 || dt == IRT_U64) lj_needsplit(J);
@@ -525,6 +526,13 @@ again:
 	idx = emitir(IRT(IR_BAND, IRT_INTP), idx, lj_ir_kintp(J, 1));
       sz = lj_ctype_size(cts, (sid = ctype_cid(ct->info)));
       idx = crec_reassoc_ofs(J, idx, &ofs, sz);
+#if LJ_TARGET_ARM
+      /* Hoist base add to allow fusion of shifts into operands. */
+      if (LJ_LIKELY(J->flags & JIT_F_OPT_LOOP) && ofs && (sz == 1 || sz == 4)) {
+	ptr = emitir(IRT(IR_ADD, IRT_PTR), ptr, lj_ir_kintp(J, ofs));
+	ofs = 0;
+      }
+#endif
       idx = emitir(IRT(IR_MUL, IRT_INTP), idx, lj_ir_kintp(J, sz));
       ptr = emitir(IRT(IR_ADD, IRT_PTR), idx, ptr);
     }
@@ -1130,10 +1138,18 @@ void LJ_FASTCALL recff_ffi_abi(jit_State *J, RecordFFData *rd)
 void LJ_FASTCALL lj_crecord_tonumber(jit_State *J, RecordFFData *rd)
 {
   CTState *cts = ctype_ctsG(J2G(J));
-  IRType st = crec_ct2irt(ctype_raw(cts, cdataV(&rd->argv[0])->typeid));
-  CTypeID did = (st >= IRT_I8 && st <= IRT_INT) ? CTID_INT32 : CTID_DOUBLE;
-  CType *d = ctype_get(cts, did);
-  J->base[0] = crec_ct_tv(J, d, 0, J->base[0], &rd->argv[0]);
+  CType *d, *ct = lj_ctype_rawref(cts, cdataV(&rd->argv[0])->typeid);
+  if (ctype_isenum(ct->info)) ct = ctype_child(cts, ct);
+  if (ctype_isnum(ct->info) || ctype_iscomplex(ct->info)) {
+    if (ctype_isinteger_or_bool(ct->info) && ct->size <= 4 &&
+	!(ct->size == 4 && (ct->info & CTF_UNSIGNED)))
+      d = ctype_get(cts, CTID_INT32);
+    else
+      d = ctype_get(cts, CTID_DOUBLE);
+    J->base[0] = crec_ct_tv(J, d, 0, J->base[0], &rd->argv[0]);
+  } else {
+    J->base[0] = TREF_NIL;
+  }
 }
 
 #undef IR

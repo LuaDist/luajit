@@ -185,12 +185,23 @@
 |
 #define PC2PROTO(field)  ((int)offsetof(GCproto, field)-(int)sizeof(GCproto))
 |
+|.macro hotcheck
+|  lsr CARG1, PC, #1
+|  and CARG1, CARG1, #126
+|  sub CARG1, CARG1, #-GG_DISP2HOT
+|  ldrh CARG2, [DISPATCH, CARG1]
+|  subs CARG2, CARG2, #1
+|  strh CARG2, [DISPATCH, CARG1]
+|.endmacro
+|
 |.macro hotloop
-|  NYI
+|  hotcheck
+|  beq ->vm_hotloop
 |.endmacro
 |
 |.macro hotcall
-|  NYI
+|  hotcheck
+|  beq ->vm_hotcall
 |.endmacro
 |
 |// Set current VM state.
@@ -325,7 +336,8 @@ static void build_subroutines(BuildCtx *ctx)
   |
   |->vm_unwind_ff:			// Unwind C stack, return from ff pcall.
   |  // (void *cframe)
-  |  bic sp, CARG1, #~CFRAME_RAWMASK
+  |  bic CARG1, CARG1, #~CFRAME_RAWMASK	// Use two steps: bic sp is deprecated.
+  |  mov sp, CARG1
   |->vm_unwind_ff_eh:			// Landing pad for external unwinder.
   |  ldr L, SAVE_L
   |   mov MASKR8, #255
@@ -755,9 +767,16 @@ static void build_subroutines(BuildCtx *ctx)
   |  mov CARG1, L
   |   str PC, SAVE_PC
   |  bl extern lj_meta_len		// (lua_State *L, TValue *o)
-  |  // Returns TValue * (metamethod base).
+  |  // Returns NULL (retry) or TValue * (metamethod base).
   |  IOS ldr BASE, L->base
+#ifdef LUAJIT_ENABLE_LUA52COMPAT
+  |  cmp CRET1, #0
+  |  bne ->vmeta_binop			// Binop call for compatibility.
+  |  ldr TAB:CARG1, [BASE, RC]
+  |  b ->BC_LEN_Z
+#else
   |  b ->vmeta_binop			// Binop call for compatibility.
+#endif
   |
   |//-- Call metamethod ----------------------------------------------------
   |
@@ -1296,10 +1315,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  movmi CARG1, #0x80000000
   |  bmi <1
   |4:
-  |  // NYI: Use internal implementation.
-  |  IOS mov RA, BASE
-  |  bl extern func
-  |  IOS mov BASE, RA
+  |  bl ->vm_..func
   |  b ->fff_restv
   |.endmacro
   |
@@ -1529,7 +1545,7 @@ static void build_subroutines(BuildCtx *ctx)
   |    mov RB, CARG3
   |   bne ->fff_fallback
   |1:
-  |  ldr CARG34, [BASE, #8]
+  |  ldrd CARG34, [BASE, #8]
   |  checktp CARG2, LJ_TSTR
   |   ldreq CARG2, STR:CARG1->len
   |  checktpeq CARG4, LJ_TISNUM
@@ -1811,7 +1827,17 @@ static void build_subroutines(BuildCtx *ctx)
   |
   |->vm_record:				// Dispatch target for recording phase.
 #if LJ_HASJIT
-  |  NYI
+  |  ldrb CARG1, [DISPATCH, #DISPATCH_GL(hookmask)]
+  |  tst CARG1, #HOOK_VMEVENT		// No recording while in vmevent.
+  |  bne >5
+  |  // Decrement the hookcount for consistency, but always do the call.
+  |   ldr CARG2, [DISPATCH, #DISPATCH_GL(hookcount)]
+  |  tst CARG1, #HOOK_ACTIVE
+  |  bne >1
+  |   sub CARG2, CARG2, #1
+  |  tst CARG1, #LUA_MASKLINE|LUA_MASKCOUNT
+  |   strne CARG2, [DISPATCH, #DISPATCH_GL(hookcount)]
+  |  b >1
 #endif
   |
   |->vm_rethook:			// Dispatch target for return hooks.
@@ -1860,7 +1886,18 @@ static void build_subroutines(BuildCtx *ctx)
   |
   |->vm_hotloop:			// Hot loop counter underflow.
 #if LJ_HASJIT
-  |  NYI
+  |  ldr LFUNC:CARG3, [BASE, FRAME_FUNC]  // Same as curr_topL(L).
+  |   sub CARG1, DISPATCH, #-GG_DISP2J
+  |   str PC, SAVE_PC
+  |  ldr CARG3, LFUNC:CARG3->field_pc
+  |   mov CARG2, PC
+  |   str L, [DISPATCH, #DISPATCH_J(L)]
+  |  ldrb CARG3, [CARG3, #PC2PROTO(framesize)]
+  |   str BASE, L->base
+  |  add CARG3, BASE, CARG3, lsl #3
+  |  str CARG3, L->top
+  |  bl extern lj_trace_hot		// (jit_State *J, const BCIns *pc)
+  |  b <3
 #endif
   |
   |->vm_callhook:			// Dispatch target for call hooks.
@@ -1889,6 +1926,7 @@ static void build_subroutines(BuildCtx *ctx)
   |   sub NARGS8:RC, CARG4, BASE
   |    str CARG2, SAVE_PC		// Invalidate for subsequent line hook.
   |  ldr LFUNC:CARG3, [BASE, FRAME_FUNC]
+  |   ldr INS, [PC, #-4]
   |  bx CRET1
   |
   |//-----------------------------------------------------------------------
@@ -1897,11 +1935,74 @@ static void build_subroutines(BuildCtx *ctx)
   |
   |->vm_exit_handler:
 #if LJ_HASJIT
-  |  NYI
+  |  sub sp, sp, #12
+  |  push {r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,r12}
+  |  ldr CARG1, [sp, #64]	// Load original value of lr.
+  |   ldr DISPATCH, [lr]	// Load DISPATCH.
+  |    add CARG3, sp, #64	// Recompute original value of sp.
+  |   mv_vmstate CARG4, EXIT
+  |    str CARG3, [sp, #52]	// Store sp in RID_SP
+  |   st_vmstate CARG4
+  |  ldr CARG2, [CARG1, #-4]!	// Get exit instruction.
+  |   str CARG1, [sp, #56]	// Store exit pc in RID_LR and RID_PC.
+  |   str CARG1, [sp, #60]
+  |  lsl CARG2, CARG2, #8
+  |  add CARG1, CARG1, CARG2, asr #6
+  |   ldr CARG2, [lr, #4]	// Load exit stub group offset.
+  |   sub CARG1, CARG1, lr
+  |  ldr L, [DISPATCH, #DISPATCH_GL(jit_L)]
+  |   add CARG1, CARG2, CARG1, lsr #2	// Compute exit number.
+  |    ldr BASE, [DISPATCH, #DISPATCH_GL(jit_base)]
+  |   str CARG1, [DISPATCH, #DISPATCH_J(exitno)]
+  |   mov CARG4, #0
+  |  str L, [DISPATCH, #DISPATCH_J(L)]
+  |    str BASE, L->base
+  |   str CARG4, [DISPATCH, #DISPATCH_GL(jit_L)]
+  |  sub CARG1, DISPATCH, #-GG_DISP2J
+  |  mov CARG2, sp
+  |  bl extern lj_trace_exit		// (jit_State *J, ExitState *ex)
+  |  // Returns MULTRES (unscaled) or negated error code.
+  |  ldr CARG2, L->cframe
+  |   ldr BASE, L->base
+  |  bic CARG2, CARG2, #~CFRAME_RAWMASK	// Use two steps: bic sp is deprecated.
+  |  mov sp, CARG2
+  |   ldr PC, SAVE_PC			// Get SAVE_PC.
+  |  str L, SAVE_L			// Set SAVE_L (on-trace resume/yield).
+  |  b >1
 #endif
   |->vm_exit_interp:
+  |  // CARG1 = MULTRES or negated error code, BASE, PC and DISPATCH set.
 #if LJ_HASJIT
-  |  NYI
+  |  ldr L, SAVE_L
+  |1:
+  |  cmp CARG1, #0
+  |  blt >3				// Check for error from exit.
+  |   lsl RC, CARG1, #3
+  |  ldr LFUNC:CARG2, [BASE, FRAME_FUNC]
+  |   str RC, SAVE_MULTRES
+  |   mov CARG3, #0
+  |  ldr CARG2, LFUNC:CARG2->field_pc
+  |   str CARG3, [DISPATCH, #DISPATCH_GL(jit_L)]
+  |    mv_vmstate CARG4, INTERP
+  |  ldr KBASE, [CARG2, #PC2PROTO(k)]
+  |  // Modified copy of ins_next which handles function header dispatch, too.
+  |  ldrb OP, [PC]
+  |     mov MASKR8, #255
+  |   ldr INS, [PC], #4
+  |     lsl MASKR8, MASKR8, #3		// MASKR8 = 255*8.
+  |    st_vmstate CARG4
+  |  cmp OP, #BC_FUNCF			// Function header?
+  |  ldr OP, [DISPATCH, OP, lsl #2]
+  |   decode_RA8 RA, INS
+  |   lsrlo RC, INS, #16	// No: Decode operands A*8 and D.
+  |   subhs RC, RC, #8
+  |   addhs RA, RA, BASE	// Yes: RA = BASE+framesize*8, RC = nargs*8
+  |  bx OP
+  |
+  |3:  // Rethrow error from the right C frame.
+  |  rsb CARG2, CARG1, #0
+  |  mov CARG1, L
+  |  bl extern lj_err_throw		// (lua_State *L, int errcode)
 #endif
   |
   |//-----------------------------------------------------------------------
@@ -1913,22 +2014,76 @@ static void build_subroutines(BuildCtx *ctx)
   |// double lj_vm_floor/ceil/trunc(double x);
   |.macro vm_round, func
   |->vm_ .. func:
-  |  NYI
+  |  lsl CARG3, CARG2, #1
+  |  adds RB, CARG3, #0x00200000
+  |  bpl >2				// |x| < 1?
+  |  mvn CARG4, #0x3cc
+  |  subs RB, CARG4, RB, asr #21	// 2^0: RB = 51, 2^51: RB = 0.
+  |  bxlo lr				// |x| >= 2^52: done.
+  |  mvn CARG4, #1
+  |   bic CARG3, CARG1, CARG4, lsl RB	// ztest = lo & ~lomask
+  |  and CARG1, CARG1, CARG4, lsl RB	// lo &= lomask
+  |  subs RB, RB, #32
+  |   bicpl CARG4, CARG2, CARG4, lsl RB	// |x| <= 2^20: ztest |= hi & ~himask
+  |   orrpl CARG3, CARG3, CARG4
+  |   mvnpl CARG4, #1
+  |  andpl CARG2, CARG2, CARG4, lsl RB	// |x| <= 2^20: hi &= himask
+  |.if "func" == "floor"
+  |   tst CARG3, CARG2, asr #31		// iszero = ((ztest & signmask) == 0)
+  |.else
+  |   bics CARG3, CARG3, CARG2, asr #31	// iszero = ((ztest & ~signmask) == 0)
+  |.endif
+  |  bxeq lr				// iszero: done.
+  |  mvn CARG4, #1
+  |  cmp RB, #0
+  |  lslpl CARG3, CARG4, RB
+  |  mvnmi CARG3, #0
+  |  add RB, RB, #32
+  |  subs CARG1, CARG1, CARG4, lsl RB	// lo = lo-lomask
+  |  sbc CARG2, CARG2, CARG3		// hi = hi-himask+carry
+  |  bx lr
+  |
+  |2:  // |x| < 1:
+  |  orr CARG3, CARG3, CARG1		// ztest = (2*hi) | lo
+  |.if "func" == "floor"
+  |  tst CARG3, CARG2, asr #31		// iszero = ((ztest & signmask) == 0)
+  |.else
+  |  bics CARG3, CARG3, CARG2, asr #31	// iszero = ((ztest & ~signmask) == 0)
+  |.endif
+  |  mov CARG1, #0			// lo = 0
+  |  and CARG2, CARG2, #0x80000000
+  |  ldrne CARG4, <9			// hi = sign(x) | (iszero ? 0.0 : 1.0)
+  |  orrne CARG2, CARG2, CARG4
+  |  bx lr
   |.endmacro
   |
+  |9:
+  |  .long 0x3ff00000			// hiword(1.0)
   |  vm_round floor
   |  vm_round ceil
-#if LJ_HASJIT
-  |  vm_round trunc
-#else
+  |
   |->vm_trunc:
+#if LJ_HASJIT
+  |  lsl CARG3, CARG2, #1
+  |  adds RB, CARG3, #0x00200000
+  |  andpl CARG2, CARG2, #0x80000000	// |x| < 1? hi = sign(x), lo = 0.
+  |  movpl CARG1, #0
+  |  bxpl lr
+  |  mvn CARG4, #0x3cc
+  |  subs RB, CARG4, RB, asr #21	// 2^0: RB = 51, 2^51: RB = 0.
+  |  bxlo lr				// |x| >= 2^52: already done.
+  |  mvn CARG4, #1
+  |  and CARG1, CARG1, CARG4, lsl RB	// lo &= lomask
+  |  subs RB, RB, #32
+  |  andpl CARG2, CARG2, CARG4, lsl RB	// |x| <= 2^20: hi &= himask
+  |  bx lr
 #endif
   |
   |  // double lj_vm_mod(double dividend, double divisor);
   |->vm_mod:
   |  push {r0, r1, r2, r3, r4, lr}
   |  bl extern __aeabi_ddiv
-  |  bl extern floor  // NYI: Use internal implementation of floor.
+  |  bl ->vm_floor
   |  ldrd CARG34, [sp, #8]
   |  bl extern __aeabi_dmul
   |  ldrd CARG34, [sp]
@@ -1972,16 +2127,6 @@ static void build_subroutines(BuildCtx *ctx)
   |  rsbmi CARG1, CARG1, #0		// if (sign(divisor) != sign(y)) y = -y
   |  bx lr
   |
-  |->vm_powi:
-#if LJ_HASJIT
-  |  NYI
-#endif
-  |
-  |->vm_foldfpm:
-#if LJ_HASJIT
-  |  NYI
-#endif
-  |
   |// Callable from C: double lj_vm_foldarith(double x, double y, int op)
   |// Compute x op y for basic arithmetic operators (+ - * / % ^ and unary -)
   |// and basic math functions. ORDER ARITH
@@ -2000,7 +2145,30 @@ static void build_subroutines(BuildCtx *ctx)
   |  eorlo CARG2, CARG2, #0x80000000
   |  biceq CARG2, CARG2, #0x80000000
   |  bxls lr
+#if LJ_HASJIT
+  |  cmp OP, #9
+  |  blo extern atan2
+  |  beq >9  // No support needed for IR_LDEXP.
+  |  cmp OP, #11
+  |  bhi >9
+  |  push {r4, lr}
+  |  beq >1
+  |  // IR_MIN
+  |  bl extern __aeabi_cdcmple
+  |  movhi CARG1, CARG3
+  |  movhi CARG2, CARG4
+  |  pop {r4, pc}
+  |9:
+  |  NYI  // Bad op.
+  |
+  |1:  // IR_MAX
+  |  bl extern __aeabi_cdcmple
+  |  movlo CARG1, CARG3
+  |  movlo CARG2, CARG4
+  |  pop {r4, pc}
+#else
   |  NYI  // Other operations only needed by JIT compiler.
+#endif
   |
   |//-----------------------------------------------------------------------
   |//-- Miscellaneous functions --------------------------------------------
@@ -2173,7 +2341,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |   mov CARG2, CARG1
     |  tst RA, #1<<MM_eq
     |  beq ->vmeta_equal		// 'no __eq' flag not set?
-    if (!vk) {
+    if (vk) {
+      |  b <2
+    } else {
       |2:  // Branch if different.
       |  sub PC, RB, #0x20000
       |1:  // Same.
@@ -2383,11 +2553,25 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |   ins_next3
     |2:
     |  checktab CARG2, ->vmeta_len
+#ifdef LUAJIT_ENABLE_LUA52COMPAT
+    |  ldr TAB:CARG3, TAB:CARG1->metatable
+    |  cmp TAB:CARG3, #0
+    |  bne >9
+    |3:
+#endif
+    |->BC_LEN_Z:
     |  IOS mov RC, BASE
     |  bl extern lj_tab_len		// (GCtab *t)
     |  // Returns uint32_t (but less than 2^31).
     |  IOS mov BASE, RC
     |  b <1
+#ifdef LUAJIT_ENABLE_LUA52COMPAT
+    |9:
+    |  ldrb CARG4, TAB:CARG3->nomm
+    |  tst CARG4, #1<<MM_len
+    |  bne <3				// 'no __len' flag set: done.
+    |  b ->vmeta_len
+#endif
     break;
 
   /* -- Binary ops -------------------------------------------------------- */
@@ -2473,9 +2657,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |5:  // FP variant.
     |  ins_arithfallback ins_arithcheck_num
     |.if "intins" == "vm_modi"
-    |  IOS mov RC, BASE
     |  bl fpcall
-    |  IOS mov BASE, RC  // NYI: remove once we use internal impl. of floor.
     |.else
     |  bl fpcall
     |   ins_next1
@@ -3094,6 +3276,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  tst RA, #1<<MM_newindex
     |  bne <1				// 'no __newindex' flag set: done.
     |  ldr INS, [PC, #-4]		// Restore INS.
+    |  decode_RA8 RA, INS
     |  b ->vmeta_tsetb
     |
     |7:  // Possible table write barrier for the value. Skip valiswhite check.
@@ -3510,7 +3693,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  // RA = base*8, RC = target (after end of loop or start of loop)
     vk = (op == BC_IFORL || op == BC_JFORL);
     |  ldrd CARG12, [RA, BASE]!
-    |   add RC, PC, RC, lsl #2
+    if (op != BC_JFORL) {
+      |   add RC, PC, RC, lsl #2
+    }
     if (!vk) {
       |  ldrd CARG34, FOR_STOP
       |   checktp CARG2, LJ_TISNUM
@@ -3532,7 +3717,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
       if (op == BC_IFORL) {
 	|  addvs RC, PC, #0x20000		// Overflow: prevent branch.
       } else {
-	|  NYI
+	|  bvs >2				// Overflow: do not enter mcode.
       }
       |  cmp CARG3, #0
       |  blt >4
@@ -3542,18 +3727,21 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     if (op == BC_FORI) {
       |  subgt PC, RC, #0x20000
     } else if (op == BC_JFORI) {
-      |  NYI
+      |  sub PC, RC, #0x20000
+      |  ldrhle RC, [PC, #-2]
     } else if (op == BC_IFORL) {
       |  suble PC, RC, #0x20000
-    } else {
-      |  NYI
     }
     if (vk) {
       |  strd CARG12, FOR_IDX
     }
+    |2:
     |   ins_next1
     |   ins_next2
     |  strd CARG12, FOR_EXT
+    if (op == BC_JFORI || op == BC_JFORL) {
+      |  ble =>BC_JLOOP
+    }
     |3:
     |   ins_next3
     |
@@ -3587,11 +3775,13 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     if (op == BC_FORI) {
       |  subhi PC, RC, #0x20000
     } else if (op == BC_JFORI) {
-      |  NYI
+      |  sub PC, RC, #0x20000
+      |  ldrhls RC, [PC, #-2]
+      |  bls =>BC_JLOOP
     } else if (op == BC_IFORL) {
       |  subls PC, RC, #0x20000
     } else {
-      |  NYI
+      |  bls =>BC_JLOOP
     }
     |  ins_next1
     |  ins_next2
@@ -3624,7 +3814,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  // RA = base*8, RC = target
     |  ldrd CARG12, [RA, BASE]!
     if (op == BC_JITERL) {
-      |  NYI
+      |  cmn CARG2, #-LJ_TNIL		// Stop if iterator returned nil.
+      |  strdne CARG12, [RA, #-8]
+      |  bne =>BC_JLOOP
     } else {
       |   add RC, PC, RC, lsl #2
       |  // STALL: load CARG12.
@@ -3652,7 +3844,15 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
 
   case BC_JLOOP:
 #if LJ_HASJIT
-    |  NYI
+    |  // RA = base (ignored), RC = traceno
+    |  ldr CARG1, [DISPATCH, #DISPATCH_J(trace)]
+    |   mov CARG2, #0  // Traces on ARM don't store the trace number, so use 0.
+    |  ldr TRACE:RC, [CARG1, RC, lsl #2]
+    |   st_vmstate CARG2
+    |  ldr RA, TRACE:RC->mcode
+    |   str BASE, [DISPATCH, #DISPATCH_GL(jit_base)]
+    |   str L, [DISPATCH, #DISPATCH_GL(jit_L)]
+    |  bx RA
 #endif
     break;
 
@@ -3684,14 +3884,17 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |    ldr KBASE, [PC, #-4+PC2PROTO(k)]
     |  cmp RA, CARG1
     |  bhi ->vm_growstack_l
-    |  ins_next1
-    |  ins_next2
+    if (op != BC_JFUNCF) {
+      |  ins_next1
+      |  ins_next2
+    }
     |2:
     |  cmp NARGS8:RC, CARG2, lsl #3	// Check for missing parameters.
     |   mvn CARG4, #~LJ_TNIL
     |  ble >3
     if (op == BC_JFUNCF) {
-      |  NYI
+      |  decode_RD RC, INS
+      |  b =>BC_JLOOP
     } else {
       |  ins_next3
     }
@@ -3832,7 +4035,6 @@ static void emit_asm_debug(BuildCtx *ctx)
     fprintf(ctx->fp,
 	"\t.align 2\n"
 	".LEFDE0:\n\n");
-    /* NYI: emit ARM.exidx. */
     break;
   default:
     break;
