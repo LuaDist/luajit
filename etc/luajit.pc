@@ -4,7 +4,7 @@
 
 # grep '^J*V=' ../Makefile
 V= 5.1
-JV= 1.1.6
+JV= 1.1.7
 
 # grep '^INSTALL_.*=' ../Makefile | sed 's/INSTALL_TOP/prefix/'
 prefix= /usr/local

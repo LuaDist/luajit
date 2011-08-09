@@ -50,7 +50,7 @@ TO_BIN= luajit
 V= 5.1
 R= 5.1.4
 # LuaJIT version.
-JV= 1.1.6
+JV= 1.1.7
 
 all:	$(PLAT)
 

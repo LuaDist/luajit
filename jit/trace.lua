@@ -1,7 +1,7 @@
 ----------------------------------------------------------------------------
 -- LuaJIT compiler tracing module.
 --
--- Copyright (C) 2005-2010 Mike Pall. All rights reserved.
+-- Copyright (C) 2005-2011 Mike Pall. All rights reserved.
 -- Released under the MIT/X license. See luajit.h for full copyright notice.
 ----------------------------------------------------------------------------
 -- Activate this module to trace the progress of the JIT compiler.
@@ -21,7 +21,7 @@ local PRIORITY = -99
 
 -- Cache some library functions and objects.
 local jit = require("jit")
-assert(jit.version_num == 10106, "LuaJIT core/library version mismatch")
+assert(jit.version_num == 10107, "LuaJIT core/library version mismatch")
 local jutil = require("jit.util")
 local type, tostring, sub, format = type, tostring, string.sub, string.format
 local getinfo, justats = debug.getinfo, jutil.stats

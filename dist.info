@@ -1,7 +1,7 @@
 --- This file is part of LuaDist project
 
 name = "luajit"
-version = "1.1.6"
+version = "1.1.7"
 
 desc = "LuaJIT is JIT compiler for the Lua language."
 author = "Mike Pall"
@@ -9,10 +9,12 @@ license = "MIT/X11"
 url = "http://www.luajit.org"
 maintainer = "Peter Drahoš"
 
+-- Offers same functionality as
 provides = { 
     "lua-5.1.4"
 }
 
+-- Cannot be deployed along lua (shared library and executable clash)
 conflicts = {
 	"lua"
 }

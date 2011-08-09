@@ -1,6 +1,6 @@
 /*
 ** Lua/Coco glue.
-** Copyright (C) 2004-2010 Mike Pall. See copyright notice in lcoco.c
+** Copyright (C) 2004-2011 Mike Pall. See copyright notice in lcoco.c
 */
 
 #ifndef lcoco_h
