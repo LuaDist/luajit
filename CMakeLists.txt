@@ -23,10 +23,11 @@ set ( LUA_MAXINPUT 512 CACHE NUMBER "Is the maximum length for an input line in 
 
 # LuaJIT specific
 option ( LUAJIT_DISABLE_FFI "Disable FFI." OFF )
-option ( LUAJIT_ENABLE_LUA52COMPAT "Enable Lua 5.2 compatibility." OFF )
+option ( LUAJIT_ENABLE_LUA52COMPAT "Enable Lua 5.2 compatibility." ON )
 option ( LUAJIT_DISABLE_JIT "Disable JIT." OFF )
 option ( LUAJIT_CPU_SSE2 "Disable SSE2." OFF )
 option ( LUAJIT_CPU_NOCMOV "Disable NOCMOV." OFF )
+option ( LUAJIT_RUN_DYNASM "Re-generate headers with DynASM." OFF )
 
 #2DO: LUAI_* and LUAL_* settings, for now defaults are used.
 set ( LUA_DIRSEP "/" )
@@ -111,77 +112,15 @@ endif ()
 # Generate luaconf.h
 configure_file ( src/luaconf.h.in ${CMAKE_CURRENT_BINARY_DIR}/luaconf.h )
 
-set ( SRC_LIB 
-  src/lib_aux.c 
-  src/lib_base.c 
-  src/lib_bit.c 
-  src/lib_debug.c 
-  src/lib_ffi.c 
-  src/lib_init.c 
-  src/lib_io.c 
-  src/lib_jit.c 
-  src/lib_math.c 
-  src/lib_os.c 
-  src/lib_string.c 
-  src/lib_table.c 
-  )
+file ( GLOB SRC_LIB src/lib_*.c )
 if ( LUA_USE_RELATIVE_LOADLIB )
-  list ( APPEND SRC_LIB src/lib_package_rel.c )
+  list ( REMOVE_ITEM SRC_LIB ${CMAKE_CURRENT_SOURCE_DIR}/src/lib_package.c )
 else ()
-  list ( APPEND SRC_LIB src/lib_package.c )
+  list ( REMOVE_ITEM SRC_LIB ${CMAKE_CURRENT_SOURCE_DIR}/src/lib_package_rel.c )
 endif ()
 
-set ( SRC_BUILD 
-  src/buildvm.c
-  src/buildvm_asm.c
-  src/buildvm_peobj.c
-  src/buildvm_lib.c
-  src/buildvm_fold.c
-  )
-
-set ( SRC_JIT 
-  src/lj_gc.c
-  src/lj_err.c 
-  src/lj_char.c 
-  src/lj_bc.c 
-  src/lj_obj.c
-  src/lj_str.c
-  src/lj_tab.c
-  src/lj_func.c
-  src/lj_udata.c
-  src/lj_meta.c
-  src/lj_state.c 
-  src/lj_dispatch.c
-  src/lj_vmevent.c
-  src/lj_api.c
-  src/lj_lex.c
-  src/lj_parse.c
-  src/lj_ir.c
-  src/lj_opt_mem.c
-  src/lj_opt_fold.c
-  src/lj_opt_narrow.c
-  src/lj_opt_dce.c
-  src/lj_opt_loop.c
-  src/lj_opt_split.c
-  src/lj_mcode.c
-  src/lj_snap.c
-  src/lj_record.c
-  src/lj_crecord.c
-  src/lj_ffrecord.c
-  src/lj_asm.c
-  src/lj_trace.c
-  src/lj_gdbjit.c
-  src/lj_ctype.c
-  src/lj_cdata.c
-  src/lj_cconv.c
-  src/lj_ccall.c
-  src/lj_carith.c
-  src/lj_clib.c
-  src/lj_cparse.c
-  src/lj_lib.c 
-  src/lj_alloc.c
-  src/lib_aux.c
-  )  
+file ( GLOB SRC_BUILD src/buildvm*.c )
+file ( GLOB SRC_JIT src/lj_*.c )
 
 # Optionally rebuild buildvm_*.h header.
 if (LUAJIT_RUN_DYNASM)
@@ -215,7 +154,11 @@ if (LUAJIT_RUN_DYNASM)
   # Note: not all of these are needed for the current platform, but for simplicity
   # specify all.
   set_source_files_properties(src/buildvm.c PROPERTIES OBJECT_DEPENDS
-    "${CMAKE_CURRENT_BINARY_DIR}/buildvm_x86.h;${CMAKE_CURRENT_BINARY_DIR}/buildvm_x64.h;${CMAKE_CURRENT_BINARY_DIR}/buildvm_x64win.h;${CMAKE_CURRENT_BINARY_DIR}/buildvm_arm.h;${CMAKE_CURRENT_BINARY_DIR}/buildvm_ppcspe.h")
+	${CMAKE_CURRENT_BINARY_DIR}/buildvm_x86.h
+	${CMAKE_CURRENT_BINARY_DIR}/buildvm_x64.h
+	${CMAKE_CURRENT_BINARY_DIR}/buildvm_x64win.h
+	${CMAKE_CURRENT_BINARY_DIR}/buildvm_arm.h
+	${CMAKE_CURRENT_BINARY_DIR}/buildvm_ppcspe.h)
   include_directories(${CMAKE_CURRENT_BINARY_DIR})
 endif ()
 
@@ -256,7 +199,7 @@ SET(DEPS
 include_directories ( ${CMAKE_CURRENT_BINARY_DIR} dynasm src )
 add_library ( liblua SHARED ${SRC_JIT} ${SRC_LIB} src/lua_dll.rc ${DEPS} ) #old: src/lua.def
 target_link_libraries ( liblua ${LIBS} )
-set_target_properties ( liblua PROPERTIES OUTPUT_NAME lua51 CLEAN_DIRECT_OUTPUT 1 )
+set_target_properties ( liblua PROPERTIES OUTPUT_NAME lua CLEAN_DIRECT_OUTPUT 1 )
 
 add_executable ( lua src/luajit.c src/lua.rc )
 target_link_libraries ( lua liblua )
