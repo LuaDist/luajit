@@ -464,7 +464,7 @@ static void ra_evictk(ASMState *as)
   while (work) {
     Reg r = rset_pickbot(work);
     IRRef ref = regcost_ref(as->cost[r]);
-    if (irref_isk(ref)) {
+    if (emit_canremat(ref) && irref_isk(ref)) {
       ra_rematk(as, ref);
       checkmclim(as);
     }
@@ -859,18 +859,22 @@ static uint32_t ir_khash(IRIns *ir)
   return hashrot(lo, hi);
 }
 
+#if !LJ_TARGET_X86ORX64 && LJ_TARGET_OSX
+void sys_icache_invalidate(void *start, size_t len);
+#endif
+
 /* Flush instruction cache. */
 static void asm_cache_flush(MCode *start, MCode *end)
 {
   VG_INVALIDATE(start, (char *)end-(char *)start);
 #if LJ_TARGET_X86ORX64
   UNUSED(start); UNUSED(end);
-#else
-#if defined(__GNUC__)
+#elif LJ_TARGET_OSX
+  sys_icache_invalidate(start, end-start);
+#elif defined(__GNUC__)
   __clear_cache(start, end);
 #else
 #error "Missing builtin to flush instruction cache"
-#endif
 #endif
 }
 
@@ -1301,7 +1305,7 @@ static void asm_tail_link(ASMState *as)
   checkmclim(as);
   ra_allocref(as, REF_BASE, RID2RSET(RID_BASE));
 
-  if (as->T->link == TRACE_INTERP) {
+  if (as->T->link == 0) {
     /* Setup fixed registers for exit to interpreter. */
     const BCIns *pc = snap_pc(as->T->snapmap[snap->mapofs + snap->nent]);
     int32_t mres;

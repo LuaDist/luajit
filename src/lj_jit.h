@@ -174,13 +174,23 @@ typedef uint32_t ExitNo;
 typedef uint32_t TraceNo;	/* Used to pass around trace numbers. */
 typedef uint16_t TraceNo1;	/* Stored trace number. */
 
-#define TRACE_INTERP	0	/* Fallback to interpreter. */
+/* Type of link. ORDER LJ_TRLINK */
+typedef enum {
+  LJ_TRLINK_NONE,		/* Incomplete trace. No link, yet. */
+  LJ_TRLINK_ROOT,		/* Link to other root trace. */
+  LJ_TRLINK_LOOP,		/* Loop to same trace. */
+  LJ_TRLINK_TAILREC,		/* Tail-recursion. */
+  LJ_TRLINK_UPREC,		/* Up-recursion. */
+  LJ_TRLINK_DOWNREC,		/* Down-recursion. */
+  LJ_TRLINK_INTERP,		/* Fallback to interpreter. */
+  LJ_TRLINK_RETURN		/* Return to interpreter. */
+} TraceLink;
 
 /* Trace object. */
 typedef struct GCtrace {
   GCHeader;
   uint8_t topslot;	/* Top stack slot already checked to be allocated. */
-  uint8_t unused1;
+  uint8_t linktype;	/* Type of link. */
   IRRef nins;		/* Next IR instruction. Biased with REF_BIAS. */
   GCRef gclist;
   IRIns *ir;		/* IR instructions/constants. Biased with REF_BIAS. */
@@ -222,7 +232,7 @@ typedef struct HotPenalty {
 } HotPenalty;
 
 #define PENALTY_SLOTS	64	/* Penalty cache slot. Must be a power of 2. */
-#define PENALTY_MIN	36	/* Minimum penalty value. */
+#define PENALTY_MIN	(36*2)	/* Minimum penalty value. */
 #define PENALTY_MAX	60000	/* Maximum penalty value. */
 #define PENALTY_RNDBITS	4	/* # of random bits to add to penalty value. */
 
@@ -358,7 +368,11 @@ typedef struct jit_State {
   size_t szallmcarea;	/* Total size of all allocated mcode areas. */
 
   TValue errinfo;	/* Additional info element for trace errors. */
-} LJ_ALIGN(16) jit_State;
+}
+#if LJ_TARGET_ARM
+LJ_ALIGN(16)		/* For DISPATCH-relative addresses in assembler part. */
+#endif
+jit_State;
 
 /* Trivial PRNG e.g. used for penalty randomization. */
 static LJ_AINLINE uint32_t LJ_PRNG_BITS(jit_State *J, int bits)

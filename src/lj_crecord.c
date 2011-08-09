@@ -969,6 +969,10 @@ void LJ_FASTCALL recff_cdata_arith(jit_State *J, RecordFFData *rd)
 	tr = emitir(IRT(IR_FLOAD, t), tr, IRFL_CDATA_INT64);
 	lj_needsplit(J);
 	goto ok;
+      } else if (ctype_isfunc(ct->info)) {
+	tr = emitir(IRT(IR_FLOAD, IRT_PTR), tr, IRFL_CDATA_PTR);
+	ct = ctype_get(cts,
+	  lj_ctype_intern(cts, CTINFO(CT_PTR, CTALIGN_PTR|id), CTSIZE_PTR));
       } else {
 	tr = emitir(IRT(IR_ADD, IRT_PTR), tr, lj_ir_kintp(J, sizeof(GCcdata)));
       }
@@ -999,7 +1003,8 @@ void LJ_FASTCALL recff_cdata_arith(jit_State *J, RecordFFData *rd)
 	(tr = crec_arith_ptr(J, sp, s, (MMS)rd->data))) {
       J->base[0] = tr;
       /* Fixup cdata comparisons, too. Avoids some cdata escapes. */
-      if (J->postproc == LJ_POST_FIXGUARD && frame_iscont(J->L->base-1)) {
+      if (J->postproc == LJ_POST_FIXGUARD && frame_iscont(J->L->base-1) &&
+	  !irt_isguard(J->guardemit)) {
 	const BCIns *pc = frame_contpc(J->L->base-1) - 1;
 	if (bc_op(*pc) <= BC_ISNEP) {
 	  setframe_pc(&J2G(J)->tmptv, pc);

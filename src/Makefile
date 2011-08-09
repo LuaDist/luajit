@@ -52,6 +52,7 @@ CCOPT= -O2 -fomit-frame-pointer
 CCOPT_X86= -march=i686
 CCOPT_X64=
 CCOPT_ARM=
+CCOPT_PPC=
 CCOPT_PPCSPE=
 #
 CCDEBUG=
@@ -198,7 +199,8 @@ TARGET_AR= $(CROSS)ar rcus
 TARGET_STRIP= $(CROSS)strip
 
 TARGET_SONAME= libluajit-$(ABIVER).so.$(MAJVER)
-TARGET_DYLIBNAME= libluajit-$(NODOTABIVER).$(MAJVER).$(MINVER).$(RELVER).dylib
+TARGET_DYLIBNAME= libluajit-$(NODOTABIVER).$(MAJVER).dylib
+TARGET_DYLIBPATH= $(or $(PREFIX),/usr/local)/lib/$(TARGET_DYLIBNAME)
 TARGET_DLLNAME= lua$(NODOTABIVER).dll
 TARGET_XSHLDFLAGS= -shared -fPIC -Wl,-soname,$(TARGET_SONAME)
 TARGET_DYNXLDOPTS=
@@ -228,11 +230,16 @@ ifneq (,$(findstring LJ_TARGET_ARM ,$(TARGET_TESTARCH)))
   TARGET_CCARCH= arm
   TARGET_XCFLAGS+= $(CCOPT_ARM)
 else
+ifneq (,$(findstring LJ_TARGET_PPC ,$(TARGET_TESTARCH)))
+  TARGET_CCARCH= ppc
+  TARGET_XCFLAGS+= $(CCOPT_PPC)
+else
 ifneq (,$(findstring LJ_TARGET_PPCSPE ,$(TARGET_TESTARCH)))
   TARGET_CCARCH= ppcspe
   TARGET_XCFLAGS+= $(CCOPT_PPCSPE)
 else
   $(error Unsupported target architecture)
+endif
 endif
 endif
 endif
@@ -274,10 +281,8 @@ ifeq (Darwin,$(TARGET_SYS))
   TARGET_STRIP+= -x
   TARGET_AR+= 2>/dev/null
   TARGET_XSHLDFLAGS= -dynamiclib -single_module -undefined dynamic_lookup -fPIC
-  ifneq (,$(TARGET_DYNXLDOPTS))
-    TARGET_DYNXLDOPTS=
-    TARGET_XSHLDFLAGS+= -install_name $(PREFIX)/lib/$(TARGET_DYLIBNAME)
-  endif
+  TARGET_DYNXLDOPTS=
+  TARGET_XSHLDFLAGS+= -install_name $(TARGET_DYLIBPATH) -compatibility_version $(MAJVER).$(MINVER) -current_version $(MAJVER).$(MINVER).$(RELVER)
   ifeq (x64,$(TARGET_CCARCH))
     TARGET_XLDFLAGS+= -pagezero_size 10000 -image_base 100000000
     TARGET_XSHLDFLAGS+= -image_base 7fff04c4a000
@@ -287,10 +292,8 @@ ifeq (iOS,$(TARGET_SYS))
   TARGET_STRIP+= -x
   TARGET_AR+= 2>/dev/null
   TARGET_XSHLDFLAGS= -dynamiclib -single_module -undefined dynamic_lookup -fPIC
-  ifneq (,$(TARGET_DYNXLDOPTS))
-    TARGET_DYNXLDOPTS=
-    TARGET_XSHLDFLAGS+= -install_name $(PREFIX)/lib/$(TARGET_DYLIBNAME)
-  endif
+  TARGET_DYNXLDOPTS=
+  TARGET_XSHLDFLAGS+= -install_name $(TARGET_DYLIBPATH) -compatibility_version $(MAJVER).$(MINVER) -current_version $(MAJVER).$(MINVER).$(RELVER)
 else
   ifneq (SunOS,$(TARGET_SYS))
     TARGET_XLDFLAGS+= -Wl,-E
@@ -341,7 +344,8 @@ DASM_FLAGS_X86=
 DASM_FLAGS_X64= -D X64
 DASM_FLAGS_X64WIN= -D X64 -D X64WIN
 DASM_FLAGS_ARM=
-DASM_FLAGS_PPCSPE= -D SPE
+DASM_FLAGS_PPC=
+DASM_FLAGS_PPCSPE=
 
 BUILDVM_O= buildvm.o buildvm_asm.o buildvm_peobj.o buildvm_lib.o buildvm_fold.o
 BUILDVM_T= buildvm
@@ -387,7 +391,7 @@ ALL_T= $(LUAJIT_T) $(LUAJIT_A) $(LUAJIT_SO) $(BUILDVM_T)
 ALL_HDRGEN= lj_bcdef.h lj_ffdef.h lj_libdef.h lj_recdef.h lj_folddef.h
 ALL_GEN= $(LJVM_S) $(ALL_HDRGEN) $(LIB_VMDEFP)
 ALL_DYNGEN= buildvm_x86.h buildvm_x64.h buildvm_x64win.h buildvm_arm.h \
-	    buildvm_ppcspe.h
+	    buildvm_ppc.h buildvm_ppcspe.h
 WIN_RM= *.obj *.lib *.exp *.dll *.exe *.manifest *.pdb *.ilk
 ALL_RM= $(ALL_T) $(ALL_GEN) *.o $(WIN_RM)
 
@@ -478,7 +482,8 @@ distclean:	clean
 	$(Q)$(DASM) $(DASM_DISTFLAGS) $(DASM_FLAGS_X64) -o buildvm_x64.h buildvm_x86.dasc
 	$(Q)$(DASM) $(DASM_DISTFLAGS) $(DASM_FLAGS_X64WIN) -o buildvm_x64win.h buildvm_x86.dasc
 	$(Q)$(DASM) $(DASM_DISTFLAGS) $(DASM_FLAGS_ARM) -o buildvm_arm.h buildvm_arm.dasc
-	$(Q)$(DASM) $(DASM_DISTFLAGS) $(DASM_FLAGS_PPCSPE) -o buildvm_ppcspe.h buildvm_ppc.dasc
+	$(Q)$(DASM) $(DASM_DISTFLAGS) $(DASM_FLAGS_PPC) -o buildvm_ppc.h buildvm_ppc.dasc
+	$(Q)$(DASM) $(DASM_DISTFLAGS) $(DASM_FLAGS_PPCSPE) -o buildvm_ppcspe.h buildvm_ppcspe.dasc
 
 depend:
 	@for file in $(ALL_HDRGEN) $(ALL_DYNGEN); do \
@@ -516,9 +521,13 @@ buildvm_arm.h: buildvm_arm.dasc
 	$(E) "DYNASM    $@"
 	$(Q)$(DASM) $(DASM_FLAGS) $(DASM_FLAGS_ARM) -o $@ buildvm_arm.dasc
 
-buildvm_ppcspe.h: buildvm_ppc.dasc
+buildvm_ppc.h: buildvm_ppc.dasc
 	$(E) "DYNASM    $@"
-	$(Q)$(DASM) $(DASM_FLAGS) $(DASM_FLAGS_PPCSPE) -o $@ buildvm_ppc.dasc
+	$(Q)$(DASM) $(DASM_FLAGS) $(DASM_FLAGS_PPC) -o $@ buildvm_ppc.dasc
+
+buildvm_ppcspe.h: buildvm_ppcspe.dasc
+	$(E) "DYNASM    $@"
+	$(Q)$(DASM) $(DASM_FLAGS) $(DASM_FLAGS_PPCSPE) -o $@ buildvm_ppcspe.dasc
 
 buildvm.o: $(ALL_DYNGEN) $(DASM_DIR)/dasm_*.h
 

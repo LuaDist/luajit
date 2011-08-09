@@ -497,6 +497,7 @@ static int trace_abort(jit_State *J)
   if (tvisnumber(L->top-1))
     e = (TraceError)numberVint(L->top-1);
   if (e == LJ_TRERR_MCODELM) {
+    L->top--;  /* Remove error object */
     J->state = LJ_TRACE_ASM;
     return 1;  /* Retry ASM with new MCode area. */
   }
@@ -509,6 +510,7 @@ static int trace_abort(jit_State *J)
   if (traceno) {
     ptrdiff_t errobj = savestack(L, L->top-1);  /* Stack may be resized. */
     J->cur.link = 0;
+    J->cur.linktype = LJ_TRLINK_NONE;
     lj_vmevent_send(L, TRACE,
       TValue *frame;
       const BCIns *pc;
@@ -545,9 +547,13 @@ static int trace_abort(jit_State *J)
 /* Perform pending re-patch of a bytecode instruction. */
 static LJ_AINLINE void trace_pendpatch(jit_State *J, int force)
 {
-  if (LJ_UNLIKELY(J->patchpc) && (force || J->chain[IR_RETF])) {
-    *J->patchpc = J->patchins;
-    J->patchpc = NULL;
+  if (LJ_UNLIKELY(J->patchpc)) {
+    if (force || J->bcskip == 0) {
+      *J->patchpc = J->patchins;
+      J->patchpc = NULL;
+    } else {
+      J->bcskip = 0;
+    }
   }
 }
 
@@ -586,6 +592,7 @@ static TValue *trace_state(lua_State *L, lua_CFunction dummy, void *ud)
 	lj_opt_dce(J);
 	if (lj_opt_loop(J)) {  /* Loop optimization failed? */
 	  J->cur.link = 0;
+	  J->cur.linktype = LJ_TRLINK_NONE;
 	  J->loopref = J->cur.nins;
 	  J->state = LJ_TRACE_RECORD;  /* Try to continue recording. */
 	  break;
@@ -637,9 +644,10 @@ void lj_trace_ins(jit_State *J, const BCIns *pc)
 /* A hotcount triggered. Start recording a root trace. */
 void LJ_FASTCALL lj_trace_hot(jit_State *J, const BCIns *pc)
 {
-  ERRNO_SAVE
   /* Note: pc is the interpreter bytecode PC here. It's offset by 1. */
-  hotcount_set(J2GG(J), pc, J->param[JIT_P_hotloop]+1);  /* Reset hotcount. */
+  ERRNO_SAVE
+  /* Reset hotcount. */
+  hotcount_set(J2GG(J), pc, J->param[JIT_P_hotloop]*HOTCOUNT_LOOP);
   /* Only start a new trace if not recording or inside __gc call or vmevent. */
   if (J->state == LJ_TRACE_IDLE &&
       !(J2G(J)->hookmask & (HOOK_GC|HOOK_VMEVENT))) {
@@ -769,6 +777,7 @@ int LJ_FASTCALL lj_trace_exit(jit_State *J, void *exptr)
 	J->patchins = *pc;
 	J->patchpc = (BCIns *)pc;
 	*J->patchpc = *retpc;
+	J->bcskip = 1;
       } else {
 	pc = retpc;
 	setcframe_pc(cf, pc);
