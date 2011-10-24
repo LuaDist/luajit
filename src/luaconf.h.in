@@ -17,12 +17,12 @@
 
 /* Default path for loading Lua and C modules with require(). */
 #cmakedefine LUA_MODULE_SUFFIX "@LUA_MODULE_SUFFIX@"
-#cmakedefine LUA_ROOT	"@LUA_ROOT@"
+#cmakedefine LUA_DIR	"@LUA_DIR@"
 #cmakedefine LUA_LDIR	"@LUA_LDIR@"
 #cmakedefine LUA_CDIR	"@LUA_CDIR@"
 
-#define LUA_PATH_DEFAULT "./?.lua;" LUA_ROOT "/" LUA_LDIR "/?.lua;" LUA_ROOT "/" LUA_LDIR "/?/init.lua"
-#define LUA_CPATH_DEFAULT "./?" LUA_MODULE_SUFFIX ";" LUA_ROOT "/" LUA_CDIR "/?" LUA_MODULE_SUFFIX ";" LUA_ROOT "/" LUA_CDIR "/loadall" LUA_MODULE_SUFFIX
+#define LUA_PATH_DEFAULT "@LUA_PATH_DEFAULT@"
+#define LUA_CPATH_DEFAULT "@LUA_CPATH_DEFAULT@"
 
 /* Environment variable names for path overrides and initialization code. */
 #cmakedefine LUA_PATH "@LUA_PATH@"

@@ -91,7 +91,6 @@ macro ( install_lua_executable _name _source )
     find_package ( Lua51 REQUIRED )
     include_directories ( ${LUA_INCLUDE_DIR} )
 
-    get_filename_component ( _source_name ${_source} NAME_WE )
     set ( _wrapper ${CMAKE_CURRENT_BINARY_DIR}/${_name}.c )
     set ( _code 
 "// Not so simple executable wrapper for Lua apps
@@ -141,7 +140,7 @@ static int report (lua_State *L, int status) {
 if (status && !lua_isnil(L, -1)) {
   const char *msg = lua_tostring(L, -1)\;
   if (msg == NULL) msg = \"(error object is not a string)\"\;
-  l_message(\"${_name}\", msg)\;
+  l_message(\"${_source_name}\", msg)\;
   lua_pop(L, 1)\;
 }
 return status\;
@@ -184,10 +183,25 @@ L=lua_open()\;
 lua_gc(L, LUA_GCSTOP, 0)\;
 luaL_openlibs(L)\;
 lua_gc(L, LUA_GCRESTART, 0)\;
-getargs(L, argv, 0)\;
+int narg = getargs(L, argv, 0)\;
 lua_setglobal(L, \"arg\")\;
-// _PROGDIR global is only available when loadlib_rel.c is used in Lua
-int status = luaL_dostring(L, \"return dofile ( (_PROGDIR or '.') .. '/${_source_name}.lua')\")\;
+
+// Script
+char script[500] = \"./${_source_name}.lua\"\;
+lua_getglobal(L, \"_PROGDIR\")\;
+if (lua_isstring(L, -1)) {
+  sprintf( script, \"%s/${_source_name}.lua\", lua_tostring(L, -1))\;
+} 
+lua_pop(L, 1)\;
+
+// Run
+int status = luaL_loadfile(L, script)\;
+lua_insert(L, -(narg+1))\;
+if (status == 0)
+  status = docall(L, narg, 0)\;
+else
+  lua_pop(L, narg)\;
+
 report(L, status)\;
 lua_close(L)\;
 return status\;
@@ -351,14 +365,15 @@ endmacro ()
 
 # ADD_LUA_TEST
 # Runs Lua script `_testfile` under CTest tester.
-# Optional argument `_testcurrentdir` is current working directory to run test under
+# Optional named argument `WORKING_DIRECTORY` is current working directory to run test under
 # (defaults to ${CMAKE_CURRENT_BINARY_DIR}).
 # Both paths, if relative, are relative to ${CMAKE_CURRENT_SOURCE_DIR}.
 # Under LuaDist, set test=true in config.lua to enable testing.
-# USE: add_lua_test ( test/test1.lua )
+# USE: add_lua_test ( test/test1.lua [args...] [WORKING_DIRECTORY dir])
 macro ( add_lua_test _testfile )
-	if ( SKIP_TESTING )
-  	include ( CTest )
+	if ( NOT SKIP_TESTING )
+		parse_arguments ( _ARG "WORKING_DIRECTORY" "" ${ARGN} )
+		include ( CTest )
 		find_program ( LUA NAMES lua lua.bat )
 		get_filename_component ( TESTFILEABS ${_testfile} ABSOLUTE )
 		get_filename_component ( TESTFILENAME ${_testfile} NAME )
@@ -372,18 +387,17 @@ local sodir = '${CMAKE_CURRENT_BINARY_DIR}' .. (configuration == '' and '' or '/
 package.path  = sodir .. '/?.lua\;' .. sodir .. '/?.lua\;' .. package.path
 package.cpath = sodir .. '/?.so\;'  .. sodir .. '/?.dll\;' .. package.cpath
 arg[0] = '${TESTFILEABS}'
-return dofile '${TESTFILEABS}'
+table.remove(arg, 1)
+return assert(loadfile '${TESTFILEABS}')(unpack(arg))
 "		)
-		if ( ${ARGC} GREATER 1 )
-			set ( _testcurrentdir ${ARGV1} )
-			get_filename_component ( TESTCURRENTDIRABS ${_testcurrentdir} ABSOLUTE )
-			set ( TESTWRAPPERSOURCE
-"require 'lfs'
-lfs.chdir('${TESTCURRENTDIRABS}' )
-${TESTWRAPPERSOURCE}" )
+		if ( _ARG_WORKING_DIRECTORY )
+			get_filename_component ( TESTCURRENTDIRABS ${_ARG_WORKING_DIRECTORY} ABSOLUTE )
+			# note: CMake 2.6 (unlike 2.8) lacks WORKING_DIRECTORY parameter.
+#old:		set ( TESTWRAPPERSOURCE "require 'lfs'; lfs.chdir('${TESTCURRENTDIRABS}' ) ${TESTWRAPPERSOURCE}" )
+			set ( _pre ${CMAKE_COMMAND} -E chdir "${TESTCURRENTDIRABS}" )
 		endif ()
 		file ( WRITE ${TESTWRAPPER} ${TESTWRAPPERSOURCE})
-		add_test ( NAME ${TESTFILEBASE} COMMAND ${LUA} ${TESTWRAPPER} $<CONFIGURATION> )
+		add_test ( NAME ${TESTFILEBASE} COMMAND ${_pre} ${LUA} ${TESTWRAPPER} $<CONFIGURATION> ${_ARG_DEFAULT_ARGS} )
 	endif ()
 	# see also http://gdcm.svn.sourceforge.net/viewvc/gdcm/Sandbox/CMakeModules/UsePythonTest.cmake
 endmacro ()

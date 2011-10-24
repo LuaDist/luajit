@@ -37,11 +37,14 @@ set ( LUA_CDIR ${INSTALL_CMOD} )
 
 if ( LUA_USE_RELATIVE_LOADLIB )
   # This will set up relative paths to lib
-  string ( REGEX REPLACE "[^!/]+" ".." LUA_ROOT "!/${INSTALL_BIN}/" )
+  string ( REGEX REPLACE "[^!/]+" ".." LUA_DIR "!/${INSTALL_BIN}/" )
 else ()
   # Direct path to installation
-  set ( LUA_ROOT ${CMAKE_INSTALL_PREFIX} CACHE STRING "Destination from which modules will be resolved. See INSTALL_LMOD and INSTALL_CMOD.")
+  set ( LUA_DIR ${CMAKE_INSTALL_PREFIX} CACHE STRING "Destination from which modules will be resolved. See INSTALL_LMOD and INSTALL_CMOD.")
 endif ()
+
+set ( LUA_PATH_DEFAULT "./?.lua;${LUA_DIR}${LUA_LDIR}/?.lua;${LUA_DIR}${LUA_LDIR}/?/init.lua;./?/init.lua" )
+set ( LUA_CPATH_DEFAULT "./?${LUA_MODULE_SUFFIX};${LUA_DIR}${LUA_CDIR}/?${LUA_MODULE_SUFFIX};${LUA_DIR}${LUA_CDIR}/loadall${LUA_MODULE_SUFFIX}" )
 
 if ( WIN32 AND NOT CYGWIN )
   # Windows systems
@@ -49,9 +52,12 @@ if ( WIN32 AND NOT CYGWIN )
   set ( LJVM_MODE coffasm )
   # Paths (Double escapes needed)
   set ( LUA_DIRSEP "\\\\" )
-  string ( REPLACE "/" ${LUA_DIRSEP} LUA_ROOT ${LUA_ROOT} )
-  string ( REPLACE "/" ${LUA_DIRSEP} LUA_LDIR ${LUA_LDIR} )
-  string ( REPLACE "/" ${LUA_DIRSEP} LUA_CDIR ${LUA_CDIR} )
+  string ( REPLACE "/" ${LUA_DIRSEP} LUA_DIR "${LUA_DIR}" )
+  string ( REPLACE "/" ${LUA_DIRSEP} LUA_LDIR "${LUA_LDIR}" )
+  string ( REPLACE "/" ${LUA_DIRSEP} LUA_CDIR "${LUA_CDIR}" )
+  string ( REPLACE "/" ${LUA_DIRSEP} LUA_PATH_DEFAULT "${LUA_PATH_DEFAULT}" )
+  string ( REPLACE "/" ${LUA_DIRSEP} LUA_CPATH_DEFAULT "${LUA_CPATH_DEFAULT}" )
+
 elseif ( APPLE )
   set ( CMAKE_EXE_LINKER_FLAGS "-pagezero_size 10000 -image_base 100000000" )
   option ( LUA_USE_POSIX "Use POSIX functionality." ON )
@@ -204,9 +210,17 @@ set_target_properties ( liblua PROPERTIES OUTPUT_NAME lua CLEAN_DIRECT_OUTPUT 1 
 add_executable ( lua src/luajit.c src/lua.rc )
 target_link_libraries ( lua liblua )
 
+# On windows a variant of the lua interpreter without console output needs to be built
+if(LUA_BUILD_WLUA)
+  add_executable ( wlua WIN32 ${SRC_LUA} ${LUA_RC} )
+  target_link_libraries ( wlua liblua )  
+  install_executable ( wlua )
+endif()
+
 ## INSTALL
-install ( TARGETS lua liblua RUNTIME DESTINATION ${INSTALL_BIN} LIBRARY DESTINATION ${INSTALL_LIB} ARCHIVE DESTINATION ${INSTALL_LIB} )
-install ( FILES src/lua.h ${CMAKE_CURRENT_BINARY_DIR}/luaconf.h src/lualib.h src/lauxlib.h DESTINATION ${INSTALL_INC} )
+install_executable( lua )
+install_library( liblua )
+install_header( src/lua.h ${CMAKE_CURRENT_BINARY_DIR}/luaconf.h src/lualib.h src/lauxlib.h )
 
 install_lua_module ( strict etc/strict.lua )
 install_doc ( doc/ )
