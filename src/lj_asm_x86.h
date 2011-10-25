@@ -463,9 +463,8 @@ static void asm_setupresult(ASMState *as, IRIns *ir, const CCallInfo *ci)
 	  ra_free(as, dest);
 	  ra_modified(as, dest);
 	  emit_rr(as, XO_MOVD, dest|REX_64, RID_RET);  /* Really MOVQ. */
-	} else {
-	  emit_movtomro(as, RID_RET|REX_64, RID_ESP, ofs);
 	}
+	if (ofs) emit_movtomro(as, RID_RET|REX_64, RID_ESP, ofs);
       } else {
 	ra_destreg(as, ir, RID_FPRET);
       }
@@ -479,7 +478,7 @@ static void asm_setupresult(ASMState *as, IRIns *ir, const CCallInfo *ci)
 		  dest, RID_ESP, ofs);
       }
       if ((ci->flags & CCI_CASTU64)) {
-	emit_movtomro(as, RID_RET, RID_ESP, ofs);
+	emit_movtomro(as, RID_RETLO, RID_ESP, ofs);
 	emit_movtomro(as, RID_RETHI, RID_ESP, ofs+4);
       } else {
 	emit_rmro(as, irt_isnum(ir->t) ? XO_FSTPq : XO_FSTPd,
@@ -1850,7 +1849,7 @@ static void asm_bitswap(ASMState *as, IRIns *ir)
 {
   Reg dest = ra_dest(as, ir, RSET_GPR);
   as->mcp = emit_op(XO_BSWAP + ((dest&7) << 24),
-		    REX_64IR(ir, dest), 0, 0, as->mcp, 1);
+		    REX_64IR(ir, 0), dest, 0, as->mcp, 1);
   ra_left(as, dest, ir->op1);
 }
 
@@ -2161,26 +2160,32 @@ static void asm_hiop(ASMState *as, IRIns *ir)
   if (!usehi) return;  /* Skip unused hiword op for all remaining ops. */
   switch ((ir-1)->o) {
   case IR_ADD:
-    asm_intarith(as, ir, uselo ? XOg_ADC : XOg_ADD);
+    as->flagmcp = NULL;
+    as->curins--;
+    asm_intarith(as, ir, XOg_ADC);
+    asm_intarith(as, ir-1, XOg_ADD);
     break;
   case IR_SUB:
-    asm_intarith(as, ir, uselo ? XOg_SBB : XOg_SUB);
+    as->flagmcp = NULL;
+    as->curins--;
+    asm_intarith(as, ir, XOg_SBB);
+    asm_intarith(as, ir-1, XOg_SUB);
     break;
   case IR_NEG: {
     Reg dest = ra_dest(as, ir, RSET_GPR);
     emit_rr(as, XO_GROUP3, XOg_NEG, dest);
-    if (uselo) {
-      emit_i8(as, 0);
-      emit_rr(as, XO_ARITHi8, XOg_ADC, dest);
-    }
+    emit_i8(as, 0);
+    emit_rr(as, XO_ARITHi8, XOg_ADC, dest);
     ra_left(as, dest, ir->op1);
+    as->curins--;
+    asm_neg_not(as, ir-1, XOg_NEG);
     break;
     }
   case IR_CALLN:
   case IR_CALLXS:
     ra_destreg(as, ir, RID_RETHI);
     if (!uselo)
-      ra_allocref(as, ir->op1, RID2RSET(RID_RET));  /* Mark call as used. */
+      ra_allocref(as, ir->op1, RID2RSET(RID_RETLO));  /* Mark call as used. */
     break;
   case IR_CNEWI:
     /* Nothing to do here. Handled by CNEWI itself. */
@@ -2613,7 +2618,7 @@ static Reg asm_setup_call_slots(ASMState *as, IRIns *ir, const CCallInfo *ci)
     uint32_t i;
     int ngpr = 6, nfpr = 8;
     for (i = 0; i < nargs; i++)
-      if (irt_isfp(IR(args[i])->t)) {
+      if (args[i] && irt_isfp(IR(args[i])->t)) {
 	if (nfpr > 0) nfpr--; else nslots += 2;
       } else {
 	if (ngpr > 0) ngpr--; else nslots += 2;
@@ -2628,7 +2633,7 @@ static Reg asm_setup_call_slots(ASMState *as, IRIns *ir, const CCallInfo *ci)
   } else {
     uint32_t i;
     for (i = 0; i < nargs; i++)
-      nslots += irt_isnum(IR(args[i])->t) ? 2 : 1;
+      nslots += (args[i] && irt_isnum(IR(args[i])->t)) ? 2 : 1;
     if (nslots > as->evenspill)  /* Leave room for args. */
       as->evenspill = nslots;
   }

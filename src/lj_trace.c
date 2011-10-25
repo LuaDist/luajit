@@ -575,17 +575,16 @@ static TValue *trace_state(lua_State *L, lua_CFunction dummy, void *ud)
       trace_pendpatch(J, 0);
       setvmstate(J2G(J), RECORD);
       lj_vmevent_send_(L, RECORD,
-	TValue savetv;  /* Save tmptv state for trace recorder. */
-	TValue savetv2;
-	copyTV(L, &savetv, &J2G(J)->tmptv);
-	copyTV(L, &savetv2, &J2G(J)->tmptv2);
+	/* Save/restore tmptv state for trace recorder. */
+	TValue savetv = J2G(J)->tmptv;
+	TValue savetv2 = J2G(J)->tmptv2;
 	setintV(L->top++, J->cur.traceno);
 	setfuncV(L, L->top++, J->fn);
 	setintV(L->top++, J->pt ? (int32_t)proto_bcpos(J->pt, J->pc) : -1);
 	setintV(L->top++, J->framedepth);
       ,
-	copyTV(L, &J2G(J)->tmptv, &savetv);
-	copyTV(L, &J2G(J)->tmptv2, &savetv2);
+	J2G(J)->tmptv = savetv;
+	J2G(J)->tmptv2 = savetv2;
       );
       lj_record_ins(J);
       break;
@@ -728,14 +727,8 @@ static TraceNo trace_exit_find(jit_State *J, MCode *pc)
   TraceNo traceno;
   for (traceno = 1; traceno < J->sizetrace; traceno++) {
     GCtrace *T = traceref(J, traceno);
-    if (T && pc >= T->mcode && pc < (MCode *)((char *)T->mcode + T->szmcode)) {
-      if (J->exitno == T->nsnap) {  /* Treat stack check like a parent exit. */
-	lua_assert(T->root != 0);
-	traceno = T->ir[REF_BASE].op1;
-	J->exitno = T->ir[REF_BASE].op2;
-      }
+    if (T && pc >= T->mcode && pc < (MCode *)((char *)T->mcode + T->szmcode))
       return traceno;
-    }
   }
   lua_assert(0);
   return 0;
@@ -752,11 +745,20 @@ int LJ_FASTCALL lj_trace_exit(jit_State *J, void *exptr)
   int errcode;
   const BCIns *pc;
   void *cf;
+  GCtrace *T;
 #ifdef EXITSTATE_PCREG
   J->parent = trace_exit_find(J, (MCode *)(intptr_t)ex->gpr[EXITSTATE_PCREG]);
 #endif
-  lua_assert(traceref(J, J->parent) != NULL &&
-	     J->exitno < traceref(J, J->parent)->nsnap);
+  T = traceref(J, J->parent); UNUSED(T);
+#ifdef EXITSTATE_CHECKEXIT
+  if (J->exitno == T->nsnap) {  /* Treat stack check like a parent exit. */
+    lua_assert(T->root != 0);
+    J->exitno = T->ir[REF_BASE].op2;
+    J->parent = T->ir[REF_BASE].op1;
+    T = traceref(J, J->parent);
+  }
+#endif
+  lua_assert(T != NULL && J->exitno < T->nsnap);
   exd.J = J;
   exd.exptr = exptr;
   errcode = lj_vm_cpcall(L, NULL, &exd, trace_exit_cp);

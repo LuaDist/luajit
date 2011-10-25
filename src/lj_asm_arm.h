@@ -516,7 +516,7 @@ static void asm_href(ASMState *as, IRIns *ir, IROp merge)
   int destused = ra_used(ir);
   Reg dest = ra_dest(as, ir, allow);
   Reg tab = ra_alloc1(as, ir->op1, rset_clear(allow, dest));
-  Reg key = 0, keyhi = 0, keynumhi = RID_NONE, tmp = RID_LR;
+  Reg key = 0, keyhi = 0, keynumhi = RID_NONE, tmp = RID_TMP;
   IRRef refkey = ir->op2;
   IRIns *irkey = IR(refkey);
   IRType1 kt = irkey->t;
@@ -932,12 +932,18 @@ static void asm_cnew(ASMState *as, IRIns *ir)
   const CCallInfo *ci = &lj_ir_callinfo[IRCALL_lj_mem_newgco];
   IRRef args[2];
   RegSet allow = (RSET_GPR & ~RSET_SCRATCH);
+  RegSet drop = RSET_SCRATCH;
   lua_assert(sz != CTSIZE_INVALID);
 
   args[0] = ASMREF_L;     /* lua_State *L */
   args[1] = ASMREF_TMP1;  /* MSize size   */
   as->gcsteps++;
-  asm_setupresult(as, ir, ci);  /* GCcdata * */
+
+  if (ra_hasreg(ir->r))
+    rset_clear(drop, ir->r);  /* Dest reg handled below. */
+  ra_evictset(as, drop);
+  if (ra_used(ir))
+    ra_destreg(as, ir, RID_RET);  /* GCcdata * */
 
   /* Initialize immutable cdata object. */
   if (ir->o == IR_CNEWI) {
@@ -1213,7 +1219,7 @@ static void asm_fpmin_max(ASMState *as, IRIns *ir, int cc)
   ra_evictset(as, drop);
   ra_destpair(as, ir);
   emit_dm(as, ARMF_CC(ARMI_MOV, cc), RID_RETHI, RID_R3);
-  emit_dm(as, ARMF_CC(ARMI_MOV, cc), RID_RET, RID_R2);
+  emit_dm(as, ARMF_CC(ARMI_MOV, cc), RID_RETLO, RID_R2);
   emit_call(as, (void *)ci->func);
   for (r = RID_R0; r <= RID_R3; r++)
     ra_leftov(as, r, args[r-RID_R0]);
@@ -1360,42 +1366,28 @@ static void asm_hiop(ASMState *as, IRIns *ir)
       asm_fpcomp(as, ir-1);
     return;
   } else if ((ir-1)->o == IR_MIN || (ir-1)->o == IR_MAX) {
-    if (uselo || usehi || !(as->flags & JIT_F_OPT_DCE)) {
-      as->curins--;  /* Always skip the loword min/max. */
+    as->curins--;  /* Always skip the loword min/max. */
+    if (uselo || usehi)
       asm_fpmin_max(as, ir-1, (ir-1)->o == IR_MIN ? CC_HI : CC_LO);
-    }
     return;
   }
-  if (!usehi && (as->flags & JIT_F_OPT_DCE))
-    return;  /* Skip unused hiword op for all remaining ops. */
+  if (!usehi) return;  /* Skip unused hiword op for all remaining ops. */
   switch ((ir-1)->o) {
 #if LJ_HASFFI
   case IR_ADD:
-    if (uselo) {
-      as->curins--;
-      asm_intop(as, ir, ARMI_ADC);
-      asm_intop(as, ir-1, ARMI_ADD|ARMI_S);
-    } else {
-      asm_intop(as, ir, ARMI_ADD);
-    }
+    as->curins--;
+    asm_intop(as, ir, ARMI_ADC);
+    asm_intop(as, ir-1, ARMI_ADD|ARMI_S);
     break;
   case IR_SUB:
-    if (uselo) {
-      as->curins--;
-      asm_intop(as, ir, ARMI_SBC);
-      asm_intop(as, ir-1, ARMI_SUB|ARMI_S);
-    } else {
-      asm_intop(as, ir, ARMI_SUB);
-    }
+    as->curins--;
+    asm_intop(as, ir, ARMI_SBC);
+    asm_intop(as, ir-1, ARMI_SUB|ARMI_S);
     break;
   case IR_NEG:
-    if (uselo) {
-      as->curins--;
-      asm_intneg(as, ir, ARMI_RSC);
-      asm_intneg(as, ir-1, ARMI_RSB|ARMI_S);
-    } else {
-      asm_intneg(as, ir, ARMI_RSB);
-    }
+    as->curins--;
+    asm_intneg(as, ir, ARMI_RSC);
+    asm_intneg(as, ir-1, ARMI_RSB|ARMI_S);
     break;
 #endif
   case IR_SLOAD: case IR_ALOAD: case IR_HLOAD: case IR_ULOAD: case IR_VLOAD:
@@ -1407,7 +1399,7 @@ static void asm_hiop(ASMState *as, IRIns *ir)
   case IR_CALLS:
   case IR_CALLXS:
     if (!uselo)
-      ra_allocref(as, ir->op1, RID2RSET(RID_RET));  /* Mark lo op as used. */
+      ra_allocref(as, ir->op1, RID2RSET(RID_RETLO));  /* Mark lo op as used. */
     break;
   case IR_ASTORE: case IR_HSTORE: case IR_USTORE:
   case IR_TOSTR: case IR_CNEWI:
@@ -1426,7 +1418,6 @@ static void asm_stack_check(ASMState *as, BCReg topslot,
   Reg pbase;
   uint32_t k;
   if (irp) {
-    exitno = as->T->nsnap;  /* Highest exit + 1 indicates stack check. */
     if (ra_hasreg(irp->r)) {
       pbase = irp->r;
     } else if (allow) {
@@ -1748,7 +1739,7 @@ static Reg asm_setup_call_slots(ASMState *as, IRIns *ir, const CCallInfo *ci)
   int nslots = 0, ngpr = REGARG_NUMGPR;
   asm_collectargs(as, ir, ci, args);
   for (i = 0; i < nargs; i++)
-    if (!LJ_SOFTFP && irt_isfp(IR(args[i])->t)) {
+    if (!LJ_SOFTFP && args[i] && irt_isnum(IR(args[i])->t)) {
       ngpr &= ~1;
       if (ngpr > 0) ngpr -= 2; else nslots += 2;
     } else {
