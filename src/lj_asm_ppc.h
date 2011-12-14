@@ -284,6 +284,8 @@ static void asm_gencall(ASMState *as, const CCallInfo *ci, IRRef *args)
 	ofs += 4;
     }
   }
+  if ((ci->flags & CCI_VARARG))  /* Vararg calls need to know about FPR use. */
+    emit_tab(as, fpr == REGARG_FIRSTFPR ? PPCI_CRXOR : PPCI_CREQV, 6, 6, 6);
 }
 
 /* Setup result reg/sp for call. Evict scratch regs. */
@@ -336,14 +338,18 @@ static void asm_callx(ASMState *as, IRIns *ir)
 {
   IRRef args[CCI_NARGS_MAX];
   CCallInfo ci;
+  IRRef func;
+  IRIns *irf;
   ci.flags = asm_callx_flags(as, ir);
   asm_collectargs(as, ir, &ci, args);
   asm_setupresult(as, ir, &ci);
-  if (irref_isk(ir->op2)) {  /* Call to constant address. */
-    ci.func = (ASMFunction)(void *)(IR(ir->op2)->i);
+  func = ir->op2; irf = IR(func);
+  if (irf->o == IR_CARG) { func = irf->op1; irf = IR(func); }
+  if (irref_isk(func)) {  /* Call to constant address. */
+    ci.func = (ASMFunction)(void *)(irf->i);
   } else {  /* Need a non-argument register for indirect calls. */
     RegSet allow = RSET_GPR & ~RSET_RANGE(RID_R0, REGARG_LASTGPR+1);
-    Reg freg = ra_alloc1(as, ir->op2, allow);
+    Reg freg = ra_alloc1(as, func, allow);
     *--as->mcp = PPCI_BCTRL;
     *--as->mcp = PPCI_MTCTR | PPCF_T(freg);
     ci.func = (ASMFunction)(void *)0;
@@ -1484,7 +1490,7 @@ static void asm_fuseandsh(ASMState *as, PPCIns pi, int32_t mask, IRRef ref)
   IRIns *ir;
   Reg left;
   if (mayfuse(as, ref) && (ir = IR(ref), ra_noreg(ir->r)) &&
-      irref_isk(ir->op2)) {
+      irref_isk(ir->op2) && ir->o >= IR_BSHL && ir->o <= IR_BROR) {
     int32_t sh = (IR(ir->op2)->i & 31);
     switch (ir->o) {
     case IR_BSHL:
@@ -1787,8 +1793,8 @@ static void asm_stack_check(ASMState *as, BCReg topslot,
 static void asm_stack_restore(ASMState *as, SnapShot *snap)
 {
   SnapEntry *map = &as->T->snapmap[snap->mapofs];
+  SnapEntry *flinks = &as->T->snapmap[snap_nextofs(as->T, snap)-1];
   MSize n, nent = snap->nent;
-  SnapEntry *flinks = map + nent + snap->depth;
   /* Store the value of all modified slots to the Lua stack. */
   for (n = 0; n < nent; n++) {
     SnapEntry sn = map[n];
@@ -2124,13 +2130,13 @@ void lj_asm_patchexit(jit_State *J, GCtrace *T, ExitNo exitno, MCode *target)
     *px = PPCI_B | ((uint32_t)delta & 0x03ffffffu);
   }
   if (!cstart) cstart = px;
-  asm_cache_flush(cstart, px+1);
+  lj_mcode_sync(cstart, px+1);
   if (clearso) {  /* Extend the current trace. Ugly workaround. */
     MCode *pp = J->cur.mcode;
     J->cur.szmcode += sizeof(MCode);
     *--pp = PPCI_MCRXR;  /* Clear SO flag. */
     J->cur.mcode = pp;
-    asm_cache_flush(pp, pp+1);
+    lj_mcode_sync(pp, pp+1);
   }
   lj_mcode_patch(J, mcarea, 1);
 }

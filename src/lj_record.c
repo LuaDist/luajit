@@ -563,12 +563,32 @@ static void rec_loop_jit(jit_State *J, TraceNo lnk, LoopEvent ev)
 
 /* -- Record calls and returns -------------------------------------------- */
 
+/* Specialize to the runtime value of the called function or its prototype. */
+static TRef rec_call_specialize(jit_State *J, GCfunc *fn, TRef tr)
+{
+  TRef kfunc;
+  if (isluafunc(fn)) {
+    GCproto *pt = funcproto(fn);
+    /* 3 or more closures created? Probably not a monomorphic function. */
+    if (pt->flags >= 3*PROTO_CLCOUNT) {  /* Specialize to prototype instead. */
+      TRef trpt = emitir(IRT(IR_FLOAD, IRT_P32), tr, IRFL_FUNC_PC);
+      emitir(IRTG(IR_EQ, IRT_P32), trpt, lj_ir_kptr(J, proto_bc(pt)));
+      (void)lj_ir_kgc(J, obj2gco(pt), IRT_PROTO);  /* Prevent GC of proto. */
+      return tr;
+    }
+  }
+  /* Otherwise specialize to the function (closure) value itself. */
+  kfunc = lj_ir_kfunc(J, fn);
+  emitir(IRTG(IR_EQ, IRT_FUNC), tr, kfunc);
+  return kfunc;
+}
+
 /* Record call setup. */
 static void rec_call_setup(jit_State *J, BCReg func, ptrdiff_t nargs)
 {
   RecordIndex ix;
   TValue *functv = &J->L->base[func];
-  TRef trfunc, *fbase = &J->base[func];
+  TRef *fbase = &J->base[func];
   ptrdiff_t i;
   for (i = 0; i <= nargs; i++)
     (void)getslot(J, func+i);  /* Ensure func and all args have a reference. */
@@ -582,11 +602,7 @@ static void rec_call_setup(jit_State *J, BCReg func, ptrdiff_t nargs)
     fbase[0] = ix.mobj;  /* Replace function. */
     functv = &ix.mobjv;
   }
-
-  /* Specialize to the runtime value of the called function. */
-  trfunc = lj_ir_kfunc(J, funcV(functv));
-  emitir(IRTG(IR_EQ, IRT_FUNC), fbase[0], trfunc);
-  fbase[0] = trfunc | TREF_FRAME;
+  fbase[0] = TREF_FRAME | rec_call_specialize(J, funcV(functv), fbase[0]);
   J->maxslot = (BCReg)nargs;
 }
 
@@ -1297,12 +1313,16 @@ static TRef rec_upvalue(jit_State *J, uint32_t uv, TRef val)
 /* Check unroll limits for calls. */
 static void check_call_unroll(jit_State *J, TraceNo lnk)
 {
-  IRRef fref = tref_ref(J->base[-1]);
+  cTValue *frame = J->L->base - 1;
+  void *pc = mref(frame_func(frame)->l.pc, void);
+  int32_t depth = J->framedepth;
   int32_t count = 0;
-  BCReg s;
-  for (s = J->baseslot - 1; s > 0; s--)
-    if ((J->slot[s] & TREF_FRAME) && tref_ref(J->slot[s]) == fref)
+  if ((J->pt->flags & PROTO_VARARG)) depth--;  /* Vararg frame still missing. */
+  for (; depth > 0; depth--) {  /* Count frames with same prototype. */
+    frame = frame_prev(frame);
+    if (mref(frame_func(frame)->l.pc, void) == pc)
       count++;
+  }
   if (J->pc == J->startpc) {
     if (count + J->tailcalled > J->param[JIT_P_recunroll]) {
       J->pc++;
@@ -1553,8 +1573,14 @@ void lj_record_ins(jit_State *J)
       rec_comp_fixup(J, pc, (!tvistruecond(&J2G(J)->tmptv2) ^ (bc_op(*pc)&1)));
       /* fallthrough */
     case LJ_POST_FIXGUARD:  /* Fixup and emit pending guard. */
-      if (!tvistruecond(&J2G(J)->tmptv2))
+    case LJ_POST_FIXGUARDSNAP:  /* Fixup and emit pending guard and snapshot. */
+      if (!tvistruecond(&J2G(J)->tmptv2)) {
 	J->fold.ins.o ^= 1;  /* Flip guard to opposite. */
+	if (J->postproc == LJ_POST_FIXGUARDSNAP) {
+	  SnapShot *snap = &J->cur.snap[J->cur.nsnap-1];
+	  J->cur.snapmap[snap->mapofs+snap->nent-1]--;  /* False -> true. */
+	}
+      }
       lj_opt_fold(J);  /* Emit pending guard. */
       /* fallthrough */
     case LJ_POST_FIXBOOL:
@@ -2047,6 +2073,7 @@ static void rec_setup_side(jit_State *J, GCtrace *T)
   SnapEntry *map = &T->snapmap[snap->mapofs];
   MSize n, nent = snap->nent;
   BloomFilter seen = 0;
+  J->framedepth = 0;
   /* Emit IR for slots inherited from parent snapshot. */
   for (n = 0; n < nent; n++) {
     SnapEntry sn = map[n];
@@ -2087,12 +2114,12 @@ static void rec_setup_side(jit_State *J, GCtrace *T)
     }
   setslot:
     J->slot[s] = tr | (sn&(SNAP_CONT|SNAP_FRAME));  /* Same as TREF_* flags. */
+    J->framedepth += ((sn & (SNAP_CONT|SNAP_FRAME)) && s);
     if ((sn & SNAP_FRAME))
       J->baseslot = s+1;
   }
   J->base = J->slot + J->baseslot;
   J->maxslot = snap->nslots - J->baseslot;
-  J->framedepth = snap->depth;
   lj_snap_add(J);
 }
 

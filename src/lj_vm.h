@@ -78,6 +78,9 @@ LJ_ASMF double lj_vm_exp2(double);
 #endif
 #endif
 LJ_ASMF int32_t LJ_FASTCALL lj_vm_modi(int32_t, int32_t);
+#if LJ_HASFFI
+LJ_ASMF int lj_vm_errno(void);
+#endif
 #endif
 
 /* Continuations for metamethods. */
@@ -87,6 +90,8 @@ LJ_ASMF void lj_cont_nop(void);  /* Do nothing, just continue execution. */
 LJ_ASMF void lj_cont_condt(void);  /* Branch if result is true. */
 LJ_ASMF void lj_cont_condf(void);  /* Branch if result is false. */
 LJ_ASMF void lj_cont_hook(void);  /* Continue from hook yield. */
+
+enum { LJ_CONT_TAILCALL, LJ_CONT_FFI_CALLBACK };  /* Special continuations. */
 
 /* Start of the ASM code. */
 LJ_ASMF char lj_vm_asm_begin[];

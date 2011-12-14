@@ -16,7 +16,7 @@
 MAJVER=  2
 MINVER=  0
 RELVER=  0
-PREREL=  -beta8
+PREREL=  -beta9
 VERSION= $(MAJVER).$(MINVER).$(RELVER)$(PREREL)
 ABIVER=  5.1
 NODOTABIVER=  51
@@ -77,7 +77,7 @@ FILE_MAN= luajit.1
 FILE_PC= luajit.pc
 FILES_INC= lua.h lualib.h lauxlib.h luaconf.h lua.hpp luajit.h
 FILES_JITLIB= bc.lua v.lua dump.lua dis_x86.lua dis_x64.lua dis_arm.lua \
-	      bcsave.lua vmdef.lua
+	      dis_ppc.lua bcsave.lua vmdef.lua
 
 ifeq (,$(findstring Windows,$(OS)))
   ifeq (Darwin,$(shell uname -s))

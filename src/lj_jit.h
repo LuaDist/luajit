@@ -122,6 +122,7 @@ typedef enum {
   LJ_POST_NONE,		/* No action. */
   LJ_POST_FIXCOMP,	/* Fixup comparison and emit pending guard. */
   LJ_POST_FIXGUARD,	/* Fixup and emit pending guard. */
+  LJ_POST_FIXGUARDSNAP,	/* Fixup and emit pending guard and snapshot. */
   LJ_POST_FIXBOOL,	/* Fixup boolean result. */
   LJ_POST_FFRETRY	/* Suppress recording of retried fast functions. */
 } PostProc;
@@ -138,8 +139,8 @@ typedef struct SnapShot {
   uint16_t mapofs;	/* Offset into snapshot map. */
   IRRef1 ref;		/* First IR ref for this snapshot. */
   uint8_t nslots;	/* Number of valid slots. */
+  uint8_t topslot;	/* Maximum frame extent. */
   uint8_t nent;		/* Number of compressed entries. */
-  uint8_t depth;	/* Number of frame links. */
   uint8_t count;	/* Count of taken exits for this snapshot. */
 } SnapShot;
 
@@ -223,6 +224,14 @@ typedef struct GCtrace {
   check_exp((n)>0 && (MSize)(n)<J->sizetrace, (GCtrace *)gcref(J->trace[(n)]))
 
 LJ_STATIC_ASSERT(offsetof(GChead, gclist) == offsetof(GCtrace, gclist));
+
+static LJ_AINLINE MSize snap_nextofs(GCtrace *T, SnapShot *snap)
+{
+  if (snap+1 == &T->snap[T->nsnap])
+    return T->nsnapmap;
+  else
+    return (snap+1)->mapofs;
+}
 
 /* Round-robin penalty cache for bytecodes leading to aborted traces. */
 typedef struct HotPenalty {

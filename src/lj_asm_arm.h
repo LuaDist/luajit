@@ -331,13 +331,17 @@ static void asm_callx(ASMState *as, IRIns *ir)
 {
   IRRef args[CCI_NARGS_MAX];
   CCallInfo ci;
+  IRRef func;
+  IRIns *irf;
   ci.flags = asm_callx_flags(as, ir);
   asm_collectargs(as, ir, &ci, args);
   asm_setupresult(as, ir, &ci);
-  if (irref_isk(ir->op2)) {  /* Call to constant address. */
-    ci.func = (ASMFunction)(void *)(IR(ir->op2)->i);
+  func = ir->op2; irf = IR(func);
+  if (irf->o == IR_CARG) { func = irf->op1; irf = IR(func); }
+  if (irref_isk(func)) {  /* Call to constant address. */
+    ci.func = (ASMFunction)(void *)(irf->i);
   } else {  /* Need a non-argument register for indirect calls. */
-    Reg freg = ra_alloc1(as, ir->op2, RSET_RANGE(RID_R4, RID_R12+1));
+    Reg freg = ra_alloc1(as, func, RSET_RANGE(RID_R4, RID_R12+1));
     emit_m(as, ARMI_BLXr, freg);
     ci.func = (ASMFunction)(void *)0;
   }
@@ -847,7 +851,7 @@ static void asm_ahuvload(ASMState *as, IRIns *ir)
     rset_clear(allow, dest);
   }
   idx = asm_fuseahuref(as, ir->op1, &ofs, allow);
-  if (!hiop) {
+  if (!hiop || type == RID_NONE) {
     rset_clear(allow, idx);
     if (ofs < 256 && ra_hasreg(dest) && (dest & 1) == 0 &&
 	rset_test((as->freeset & allow), dest+1)) {
@@ -1418,8 +1422,9 @@ static void asm_stack_check(ASMState *as, BCReg topslot,
   Reg pbase;
   uint32_t k;
   if (irp) {
-    if (ra_hasreg(irp->r)) {
+    if (!ra_hasspill(irp->s)) {
       pbase = irp->r;
+      lua_assert(ra_hasreg(pbase));
     } else if (allow) {
       pbase = rset_pickbot(allow);
     } else {
@@ -1438,14 +1443,11 @@ static void asm_stack_check(ASMState *as, BCReg topslot,
 	   (int32_t)offsetof(lua_State, maxstack));
   if (irp) {  /* Must not spill arbitrary registers in head of side trace. */
     int32_t i = i32ptr(&J2G(as->J)->jit_L);
-    if (ra_noreg(irp->r)) {
-      lua_assert(ra_hasspill(irp->s));
-      emit_lso(as, ARMI_LDR, RID_RET, RID_SP, sps_scale(irp->s));
-    }
+    if (ra_hasspill(irp->s))
+      emit_lso(as, ARMI_LDR, pbase, RID_SP, sps_scale(irp->s));
     emit_lso(as, ARMI_LDR, RID_TMP, RID_TMP, (i & 4095));
-    if (ra_noreg(irp->r)) {
+    if (ra_hasspill(irp->s) && !allow)
       emit_lso(as, ARMI_STR, RID_RET, RID_SP, 0);  /* Save temp. register. */
-    }
     emit_loadi(as, RID_TMP, (i & ~4095));
   } else {
     emit_getgl(as, RID_TMP, jit_L);
@@ -1456,8 +1458,8 @@ static void asm_stack_check(ASMState *as, BCReg topslot,
 static void asm_stack_restore(ASMState *as, SnapShot *snap)
 {
   SnapEntry *map = &as->T->snapmap[snap->mapofs];
+  SnapEntry *flinks = &as->T->snapmap[snap_nextofs(as->T, snap)-1];
   MSize n, nent = snap->nent;
-  SnapEntry *flinks = map + nent + snap->depth;
   /* Store the value of all modified slots to the Lua stack. */
   for (n = 0; n < nent; n++) {
     SnapEntry sn = map[n];
@@ -1777,7 +1779,7 @@ void lj_asm_patchexit(jit_State *J, GCtrace *T, ExitNo exitno, MCode *target)
     }
   }
   lua_assert(cstart != NULL);
-  asm_cache_flush(cstart, cend);
+  lj_mcode_sync(cstart, cend);
   lj_mcode_patch(J, mcarea, 1);
 }
 
