@@ -225,6 +225,6 @@ install_header( src/lua.h ${CMAKE_CURRENT_BINARY_DIR}/luaconf.h src/lualib.h src
 install_lua_module ( strict etc/strict.lua )
 install_doc ( doc/ )
 install_foo ( etc/ )
-install_data ( COPYRIGHT README )
+install_data ( COPYRIGHT README.md )
 install_data ( lib/ INTO lib )
 
