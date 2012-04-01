@@ -3,10 +3,7 @@ README for LuaJIT 1.1.7
 
 [![Build Status](https://secure.travis-ci.org/LuaDist/luajit.png?branch=luajit-1)](http://travis-ci.org/LuaDist/luajit)
 
-************************************************************
-* This is only a bugfix release for the LuaJIT 1.1 branch. *
-* LuaJIT 2.0 is available with much improved performance!  *
-************************************************************
+LuaJIT 2.0 is available with much improved performance!
 
 LuaJIT is a Just-In-Time (JIT) compiler for the Lua programming language.
 
