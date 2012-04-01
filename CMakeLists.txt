@@ -138,7 +138,7 @@ target_link_libraries ( luac liblua_static )
 ## INSTALL
 install_executable ( lua luac )
 install_library ( liblua )
-install_data ( README COPYRIGHT )
+install_data ( README.md COPYRIGHT )
 install_lua_module ( strict etc/strict.lua )
 install_header ( src/lua.h src/lualib.h src/lauxlib.h etc/lua.hpp ${CMAKE_CURRENT_BINARY_DIR}/luaconf.h  )
 install_doc ( doc/ )

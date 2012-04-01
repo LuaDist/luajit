@@ -1,5 +1,7 @@
 README for LuaJIT 1.1.7
------------------------
+=======================
+
+[![Build Status](https://secure.travis-ci.org/LuaDist/luajit.png?branch=luajit-1)](http://travis-ci.org/LuaDist/luajit)
 
 ************************************************************
 * This is only a bugfix release for the LuaJIT 1.1 branch. *
