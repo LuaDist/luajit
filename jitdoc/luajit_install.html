@@ -4,7 +4,7 @@
 <title>Installing LuaJIT</title>
 <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
 <meta name="Author" content="Mike Pall">
-<meta name="Copyright" content="Copyright (C) 2005-2011, Mike Pall">
+<meta name="Copyright" content="Copyright (C) 2005-2012, Mike Pall">
 <meta name="Language" content="en">
 <link rel="stylesheet" type="text/css" href="bluequad.css" media="screen">
 <link rel="stylesheet" type="text/css" href="bluequad-print.css" media="print">
@@ -163,7 +163,7 @@ The Makefiles have a number of targets for various operating systems:
 <tr class="buildhead"><td class="buildsys">System</td><td class="buildcmd">Build Command</td><td>Notes</td></tr>
 <tr class="odd"><td class="buildsys">Linux i386</td><td class="buildcmd">make linux</td><td></td></tr>
 <tr class="even"><td class="buildsys">BSD i386</td><td class="buildcmd">make bsd</td><td>FreeBSD, NetBSD or OpenBSD</td></tr>
-<tr class="odd"><td class="buildsys">Mac OS X on Intel</td><td class="buildcmd">make macosx</td><td>Check <tt>src/Makefile</tt> for OS X &lt; 10.4</td></tr>
+<tr class="odd"><td class="buildsys">OSX</td><td class="buildcmd">make macosx</td><td>Check <tt>src/Makefile</tt> for OSX &lt; 10.4</td></tr>
 <tr class="even"><td class="buildsys">Solaris x86</td><td class="buildcmd">make solaris</td><td>GCC only, SunCC miscompiles LuaJIT</td></tr>
 <tr class="odd"><td class="buildsys">MinGW (Win32)</td><td class="buildcmd">make mingw</td><td>cross-MinGW: must be 1st in PATH</td></tr>
 <tr class="even"><td class="buildsys">Cygwin</td><td class="buildcmd">make cygwin</td><td></td></tr>
@@ -174,7 +174,7 @@ The Makefiles have a number of targets for various operating systems:
 
 <p>
 You may want to enable interactive line editing for the stand-alone
-executable. There are extra targets for Linux, BSD and Mac OS X:
+executable. There are extra targets for Linux, BSD and OSX:
 <tt>make&nbsp;linux_rl</tt>, <tt>make&nbsp;bsd_rl</tt>
 and <tt>make&nbsp;macosx_rl</tt>.
 </p>
@@ -330,7 +330,7 @@ Thank you!
 </div>
 <div id="foot">
 <hr class="hide">
-Copyright &copy; 2005-2011 Mike Pall
+Copyright &copy; 2005-2012 Mike Pall
 <span class="noprint">
 &middot;
 <a href="contact.html">Contact</a>

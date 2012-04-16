@@ -4,7 +4,7 @@
 <title>Portability Requirements for Coco</title>
 <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
 <meta name="Author" content="Mike Pall">
-<meta name="Copyright" content="Copyright (C) 2005-2011, Mike Pall">
+<meta name="Copyright" content="Copyright (C) 2005-2012, Mike Pall">
 <meta name="Language" content="en">
 <link rel="stylesheet" type="text/css" href="bluequad.css" media="screen">
 <link rel="stylesheet" type="text/css" href="bluequad-print.css" media="print">
@@ -158,7 +158,7 @@ Coco has support for the following platforms:
 <tr class="even">
 <td class="supportcpu">x86</td><td class="supportsys">Solaris</td><td>setjmp</td></tr>
 <tr class="odd">
-<td class="supportcpu">x86</td><td class="supportsys">Mac OS X</td><td>setjmp</td></tr>
+<td class="supportcpu">x86</td><td class="supportsys">OSX</td><td>setjmp</td></tr>
 <tr class="even separate">
 <td class="supportcpu">x64</td><td class="supportsys">(any OS)</td><td>gccasm</td></tr>
 <tr class="odd">
@@ -169,8 +169,12 @@ Coco has support for the following platforms:
 <td class="supportcpu">MIPS32</td><td class="supportsys">Linux</td><td>setjmp</td></tr>
 <tr class="even separate">
 <td class="supportcpu">ARM</td><td class="supportsys">Linux</td><td>setjmp</td></tr>
+<tr class="odd">
+<td class="supportcpu">ARM</td><td class="supportsys">iOS</td><td>setjmp</td></tr>
+<tr class="even separate">
+<td class="supportcpu">PPC32</td><td class="supportsys">OSX</td><td>setjmp</td></tr>
 <tr class="odd separate">
-<td class="supportcpu">PPC32</td><td class="supportsys">Mac OS X</td><td>setjmp</td></tr>
+<td class="supportcpu">Sparc</td><td class="supportsys">(any OS)</td><td>gccasm</td></tr>
 <tr class="even separate">
 <td class="supportcpu">(any CPU)</td><td class="supportsys">POSIX</td><td>ucontext</td></tr>
 <tr class="odd separate">
@@ -225,7 +229,7 @@ do not work well with newly allocated C stacks.
 </div>
 <div id="foot">
 <hr class="hide">
-Copyright &copy; 2005-2011 Mike Pall
+Copyright &copy; 2005-2012 Mike Pall
 <span class="noprint">
 &middot;
 <a href="contact.html">Contact</a>

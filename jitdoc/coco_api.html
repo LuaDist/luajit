@@ -4,7 +4,7 @@
 <title>Coco API Extensions</title>
 <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
 <meta name="Author" content="Mike Pall">
-<meta name="Copyright" content="Copyright (C) 2005-2011, Mike Pall">
+<meta name="Copyright" content="Copyright (C) 2005-2012, Mike Pall">
 <meta name="Language" content="en">
 <link rel="stylesheet" type="text/css" href="bluequad.css" media="screen">
 <link rel="stylesheet" type="text/css" href="bluequad-print.css" media="print">
@@ -68,17 +68,17 @@ By default all your coroutines get an associated C&nbsp;stack.
 If you want to be more selective, see below.
 </p>
 
-<h2>Lua API extensions</h2>
+<h2 id="api_lua">Lua API extensions</h2>
 <p>
 All <tt>coroutine.*</tt> functions should be fully upwards compatible.
 </p>
 
-<h3><tt>coroutine.coco</tt></h3>
+<h3 id="coco"><tt>coroutine.coco</tt></h3>
 <p>
 This field is <tt>true</tt> when Coco is present (nil otherwise).
 </p>
 
-<h3><tt>coro = coroutine.create(f [, cstacksize])<br>
+<h3 id="create"><tt>coro = coroutine.create(f [, cstacksize])<br>
 func = coroutine.wrap(f [, cstacksize])</tt></h3>
 <p>
 The optional argument <tt>cstacksize</tt> specifies the size of the
@@ -96,7 +96,7 @@ Important notice for LuaJIT: JIT compiled functions cannot
 yield if a coroutine does not have a dedicated C&nbsp;stack.
 </p>
 
-<h3><tt>olddefault = coroutine.cstacksize([newdefault])</tt></h3>
+<h3 id="cstacksize"><tt>olddefault = coroutine.cstacksize([newdefault])</tt></h3>
 <p>
 Returns the current default C&nbsp;stack size (may be 0 if the
 underlying context switch method has its own default).
@@ -105,12 +105,12 @@ Use 0 to reset it to the default C&nbsp;stack size. Any other
 value is rounded up to the minimum size.
 </p>
 
-<h2>C&nbsp;API extensions</h2>
+<h2 id="api_c">C&nbsp;API extensions</h2>
 <p>
 All C&nbsp;API functions are either unchanged or upwards compatible.
 </p>
 
-<h3><tt>int lua_yield(lua_State *L, int nresults)</tt></h3>
+<h3 id="lua_yield"><tt>int lua_yield(lua_State *L, int nresults)</tt></h3>
 <p>
 The semantics for <tt>lua_yield()</tt> have changed slightly.
 Existing programs should work fine as long as they follow
@@ -142,7 +142,7 @@ anywhere in your C&nbsp;program, even several call levels deeper.
 Of course all of this only works with Lua+Coco and not with standard Lua.
 </p>
 
-<h3><tt>lua_State *lua_newcthread(lua_State *L, int cstacksize)</tt></h3>
+<h3 id="lua_newcthread"><tt>lua_State *lua_newcthread(lua_State *L, int cstacksize)</tt></h3>
 <p>
 This is an (optional) new function that allows you to create
 a coroutine with an associated C&nbsp;stack directly from the C&nbsp;API.
@@ -165,14 +165,14 @@ and Lua+Coco you can check whether Coco is available with:
   lua_pop(L, 2);
 </pre>
 <p>
-You can create coroutines with a C&nbsp;stack by calling
-the Lua function <tt>coroutine.create()</tt> from C, too.
+You can also create coroutines with a C&nbsp;stack by calling
+the Lua function <tt>coroutine.create()</tt> from C.
 </p>
 <br class="flush">
 </div>
 <div id="foot">
 <hr class="hide">
-Copyright &copy; 2005-2011 Mike Pall
+Copyright &copy; 2005-2012 Mike Pall
 <span class="noprint">
 &middot;
 <a href="contact.html">Contact</a>

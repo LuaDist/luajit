@@ -1,7 +1,7 @@
 ----------------------------------------------------------------------------
 -- LuaJIT x86 disassembler module.
 --
--- Copyright (C) 2005-2011 Mike Pall. All rights reserved.
+-- Copyright (C) 2005-2012 Mike Pall. All rights reserved.
 -- Released under the MIT/X license. See luajit.h for full copyright notice.
 ----------------------------------------------------------------------------
 -- This is a helper module used by the LuaJIT machine code dumper module.

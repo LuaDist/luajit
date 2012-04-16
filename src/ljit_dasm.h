@@ -1,6 +1,6 @@
 /*
 ** Interface to DynASM engine.
-** Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #ifndef ljit_dasm_h

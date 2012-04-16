@@ -1,4 +1,4 @@
-README for LuaJIT 1.1.7
+README for LuaJIT 1.1.8
 =======================
 
 [![Build Status](https://secure.travis-ci.org/LuaDist/luajit.png?branch=luajit-1)](http://travis-ci.org/LuaDist/luajit)
@@ -18,7 +18,7 @@ machine code to speed up the execution of Lua programs.
 
 Homepage: http://luajit.org/
 
-LuaJIT is Copyright (C) 2005-2011 Mike Pall. LuaJIT is free
+LuaJIT is Copyright (C) 2005-2012 Mike Pall. LuaJIT is free
 software, released under the MIT/X license.
 
 -----------------------
@@ -38,8 +38,8 @@ The original documentation for Lua has been included for convenience:
 
 -----------------------
 
-LuaJIT 1.1.7 is a heavily modified version of Lua 5.1.4.
+LuaJIT 1.1.8 is a heavily modified version of Lua 5.1.5.
 The unmodified Lua distribution is available at:
 
-  http://www.lua.org/ftp/lua-5.1.4.tar.gz
+  http://www.lua.org/ftp/lua-5.1.5.tar.gz
 

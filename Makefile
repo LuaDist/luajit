@@ -48,9 +48,9 @@ TO_BIN= luajit
 
 # Lua version and release.
 V= 5.1
-R= 5.1.4
+R= 5.1.5
 # LuaJIT version.
-JV= 1.1.7
+JV= 1.1.8
 
 all:	$(PLAT)
 

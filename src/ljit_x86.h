@@ -11,7 +11,7 @@
 
 /*
 ** Bytecode to machine code translation for x86 CPUs.
-** Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #define DASM_SECTION_CODE	0
@@ -565,7 +565,7 @@ static void jit_checkGC(jit_State *J)
 
 /*
 ** Function inlining support for x86 CPUs.
-** Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 */
 
 /* ------------------------------------------------------------------------ */
