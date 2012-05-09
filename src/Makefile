@@ -7,7 +7,7 @@
 # Also works with MinGW and Cygwin on Windows.
 # Please check msvcbuild.bat for building with MSVC on Windows.
 #
-# Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+# Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 ##############################################################################
 
 MAJVER=  2
@@ -54,6 +54,7 @@ CCOPT_X64=
 CCOPT_ARM=
 CCOPT_PPC=
 CCOPT_PPCSPE=
+CCOPT_MIPS=
 #
 CCDEBUG=
 # Uncomment the next line to generate debug information:
@@ -141,6 +142,7 @@ XCFLAGS=
 #
 # This define is required to run LuaJIT under Valgrind. The Valgrind
 # header files must be installed. You should enable debug information, too.
+# Use --suppressions=lj.supp to avoid some false positives.
 #XCFLAGS+= -DLUAJIT_USE_VALGRIND
 #
 # This is the client for the GDB JIT API. GDB 7.0 or higher is required
@@ -173,12 +175,10 @@ XCFLAGS=
 #
 # Cross-compilation examples:
 #   make HOST_CC="gcc -m32" CROSS=i586-mingw32msvc- TARGET_SYS=Windows
-#   make HOST_CC="gcc -m32" CROSS=powerpc-e500v2-linux-gnuspe- TARGET=ppcspe
+#   make HOST_CC="gcc -m32" CROSS=powerpc-linux-gnu-
 
 CCOPTIONS= $(CCDEBUG) $(CCOPT) $(CCWARN) $(XCFLAGS) $(CFLAGS)
 LDOPTIONS= $(CCDEBUG) $(LDFLAGS)
-
-TARGET_ARCH= $(patsubst %,-DLUAJIT_TARGET=LUAJIT_ARCH_%,$(TARGET))
 
 HOST_CC= $(CC)
 HOST_RM= rm -f
@@ -214,16 +214,13 @@ TARGET_DYNXLDOPTS=
 TARGET_XCFLAGS= -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -U_FORTIFY_SOURCE
 TARGET_XLDFLAGS=
 TARGET_XLIBS= -lm
+TARGET_TCFLAGS= $(CCOPTIONS) $(TARGET_XCFLAGS) $(TARGET_FLAGS) $(TARGET_CFLAGS)
 TARGET_ACFLAGS= $(CCOPTIONS) $(TARGET_XCFLAGS) $(TARGET_ARCH) $(TARGET_FLAGS) $(TARGET_CFLAGS)
 TARGET_ALDFLAGS= $(LDOPTIONS) $(TARGET_XLDFLAGS) $(TARGET_FLAGS) $(TARGET_LDFLAGS)
 TARGET_ASHLDFLAGS= $(LDOPTIONS) $(TARGET_XSHLDFLAGS) $(TARGET_FLAGS) $(TARGET_SHLDFLAGS)
 TARGET_ALIBS= $(TARGET_XLIBS) $(LIBS) $(TARGET_LIBS)
 
-ifneq (,$(findstring stack-protector,$(shell $(TARGET_CC) -dumpspecs)))
-  TARGET_XCFLAGS+= -fno-stack-protector
-endif
-
-TARGET_TESTARCH=$(shell $(TARGET_CC) $(TARGET_ACFLAGS) -E lj_arch.h -dM)
+TARGET_TESTARCH=$(shell $(TARGET_CC) $(TARGET_TCFLAGS) -E lj_arch.h -dM)
 ifneq (,$(findstring LJ_TARGET_X64 ,$(TARGET_TESTARCH)))
   TARGET_CCARCH= x64
   TARGET_XCFLAGS+= $(CCOPT_X64)
@@ -244,12 +241,22 @@ ifneq (,$(findstring LJ_TARGET_PPCSPE ,$(TARGET_TESTARCH)))
   TARGET_CCARCH= ppcspe
   TARGET_XCFLAGS+= $(CCOPT_PPCSPE)
 else
+ifneq (,$(findstring LJ_TARGET_MIPS ,$(TARGET_TESTARCH)))
+  ifneq (,$(findstring MIPSEL ,$(TARGET_TESTARCH)))
+    TARGET_ARCH= -D__MIPSEL__=1
+  endif
+  TARGET_CCARCH= mips
+  TARGET_XCFLAGS+= $(CCOPT_MIPS)
+else
   $(error Unsupported target architecture)
 endif
 endif
 endif
 endif
 endif
+endif
+
+TARGET_ARCH+= $(patsubst %,-DLUAJIT_TARGET=LUAJIT_ARCH_%,$(TARGET_CCARCH))
 
 ifneq (,$(PREFIX))
 ifneq (/usr/local,$(PREFIX))
@@ -283,9 +290,12 @@ ifeq (Windows,$(TARGET_SYS))
   TARGET_DYNXLDOPTS=
 else
 ifeq (Darwin,$(TARGET_SYS))
-  export MACOSX_DEPLOYMENT_TARGET=10.4
+  ifeq (,$(MACOSX_DEPLOYMENT_TARGET))
+    export MACOSX_DEPLOYMENT_TARGET=10.4
+  endif
   TARGET_STRIP+= -x
   TARGET_AR+= 2>/dev/null
+  TARGET_XCFLAGS+= -fno-stack-protector
   TARGET_XSHLDFLAGS= -dynamiclib -single_module -undefined dynamic_lookup -fPIC
   TARGET_DYNXLDOPTS=
   TARGET_XSHLDFLAGS+= -install_name $(TARGET_DYLIBPATH) -compatibility_version $(MAJVER).$(MINVER) -current_version $(MAJVER).$(MINVER).$(RELVER)
@@ -297,10 +307,14 @@ else
 ifeq (iOS,$(TARGET_SYS))
   TARGET_STRIP+= -x
   TARGET_AR+= 2>/dev/null
+  TARGET_XCFLAGS+= -fno-stack-protector
   TARGET_XSHLDFLAGS= -dynamiclib -single_module -undefined dynamic_lookup -fPIC
   TARGET_DYNXLDOPTS=
   TARGET_XSHLDFLAGS+= -install_name $(TARGET_DYLIBPATH) -compatibility_version $(MAJVER).$(MINVER) -current_version $(MAJVER).$(MINVER).$(RELVER)
 else
+  ifneq (,$(findstring stack-protector,$(shell $(TARGET_CC) -dumpspecs)))
+    TARGET_XCFLAGS+= -fno-stack-protector
+  endif
   ifneq (SunOS,$(TARGET_SYS))
     TARGET_XLDFLAGS+= -Wl,-E
   endif
@@ -352,6 +366,7 @@ DASM_FLAGS_X64WIN= -D X64 -D X64WIN
 DASM_FLAGS_ARM=
 DASM_FLAGS_PPC=
 DASM_FLAGS_PPCSPE=
+DASM_FLAGS_MIPS=
 
 BUILDVM_O= buildvm.o buildvm_asm.o buildvm_peobj.o buildvm_lib.o buildvm_fold.o
 BUILDVM_T= buildvm
@@ -397,7 +412,7 @@ ALL_T= $(LUAJIT_T) $(LUAJIT_A) $(LUAJIT_SO) $(BUILDVM_T)
 ALL_HDRGEN= lj_bcdef.h lj_ffdef.h lj_libdef.h lj_recdef.h lj_folddef.h
 ALL_GEN= $(LJVM_S) $(ALL_HDRGEN) $(LIB_VMDEFP)
 ALL_DYNGEN= buildvm_x86.h buildvm_x64.h buildvm_x64win.h buildvm_arm.h \
-	    buildvm_ppc.h buildvm_ppcspe.h
+	    buildvm_ppc.h buildvm_ppcspe.h buildvm_mips.h
 WIN_RM= *.obj *.lib *.exp *.dll *.exe *.manifest *.pdb *.ilk
 ALL_RM= $(ALL_T) $(ALL_GEN) *.o $(WIN_RM)
 
@@ -490,6 +505,7 @@ distclean:	clean
 	$(Q)$(DASM) $(DASM_DISTFLAGS) $(DASM_FLAGS_ARM) -o buildvm_arm.h buildvm_arm.dasc
 	$(Q)$(DASM) $(DASM_DISTFLAGS) $(DASM_FLAGS_PPC) -o buildvm_ppc.h buildvm_ppc.dasc
 	$(Q)$(DASM) $(DASM_DISTFLAGS) $(DASM_FLAGS_PPCSPE) -o buildvm_ppcspe.h buildvm_ppcspe.dasc
+	$(Q)$(DASM) $(DASM_DISTFLAGS) $(DASM_FLAGS_MIPS) -o buildvm_mips.h buildvm_mips.dasc
 
 depend:
 	@for file in $(ALL_HDRGEN) $(ALL_DYNGEN); do \
@@ -534,6 +550,10 @@ buildvm_ppc.h: buildvm_ppc.dasc
 buildvm_ppcspe.h: buildvm_ppcspe.dasc
 	$(E) "DYNASM    $@"
 	$(Q)$(DASM) $(DASM_FLAGS) $(DASM_FLAGS_PPCSPE) -o $@ buildvm_ppcspe.dasc
+
+buildvm_mips.h: buildvm_mips.dasc
+	$(E) "DYNASM    $@"
+	$(Q)$(DASM) $(DASM_FLAGS) $(DASM_FLAGS_MIPS) -o $@ buildvm_mips.dasc
 
 buildvm.o: $(ALL_DYNGEN) $(DASM_DIR)/dasm_*.h
 

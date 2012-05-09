@@ -1,6 +1,6 @@
 /*
 ** IR assembler (SSA IR -> machine code).
-** Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #define lj_asm_c
@@ -155,6 +155,8 @@ IRFLDEF(FLOFS)
 #include "lj_emit_arm.h"
 #elif LJ_TARGET_PPC
 #include "lj_emit_ppc.h"
+#elif LJ_TARGET_MIPS
+#include "lj_emit_mips.h"
 #else
 #error "Missing instruction emitter for target CPU"
 #endif
@@ -441,12 +443,22 @@ static Reg ra_scratch(ASMState *as, RegSet allow)
 /* Evict all registers from a set (if not free). */
 static void ra_evictset(ASMState *as, RegSet drop)
 {
+  RegSet work;
   as->modset |= drop;
-  drop &= ~as->freeset;
-  while (drop) {
-    Reg r = rset_pickbot(drop);
+#if !LJ_SOFTFP
+  work = (drop & ~as->freeset) & RSET_FPR;
+  while (work) {
+    Reg r = rset_pickbot(work);
     ra_restore(as, regcost_ref(as->cost[r]));
-    rset_clear(drop, r);
+    rset_clear(work, r);
+    checkmclim(as);
+  }
+#endif
+  work = (drop & ~as->freeset) & RSET_GPR;
+  while (work) {
+    Reg r = rset_pickbot(work);
+    ra_restore(as, regcost_ref(as->cost[r]));
+    rset_clear(work, r);
     checkmclim(as);
   }
 }
@@ -1067,6 +1079,64 @@ static void asm_phi_shuffle(ASMState *as)
   }
 }
 
+/* Copy unsynced left/right PHI spill slots. Rarely needed. */
+static void asm_phi_copyspill(ASMState *as)
+{
+  int need = 0;
+  IRIns *ir;
+  for (ir = IR(as->orignins-1); ir->o == IR_PHI; ir--)
+    if (ra_hasspill(ir->s) && ra_hasspill(IR(ir->op1)->s))
+      need |= irt_isfp(ir->t) ? 2 : 1;  /* Unsynced spill slot? */
+  if ((need & 1)) {  /* Copy integer spill slots. */
+#if !LJ_TARGET_X86ORX64
+    Reg r = RID_TMP;
+#else
+    Reg r = RID_RET;
+    if ((as->freeset & RSET_GPR))
+      r = rset_pickbot((as->freeset & RSET_GPR));
+    else
+      emit_spload(as, IR(regcost_ref(as->cost[r])), r, SPOFS_TMP);
+#endif
+    for (ir = IR(as->orignins-1); ir->o == IR_PHI; ir--) {
+      if (ra_hasspill(ir->s)) {
+	IRIns *irl = IR(ir->op1);
+	if (ra_hasspill(irl->s) && !irt_isfp(ir->t)) {
+	  emit_spstore(as, irl, r, sps_scale(irl->s));
+	  emit_spload(as, ir, r, sps_scale(ir->s));
+	}
+      }
+    }
+#if LJ_TARGET_X86ORX64
+    if (!rset_test(as->freeset, r))
+      emit_spstore(as, IR(regcost_ref(as->cost[r])), r, SPOFS_TMP);
+#endif
+  }
+#if !LJ_SOFTFP
+  if ((need & 2)) {  /* Copy FP spill slots. */
+#if LJ_TARGET_X86
+    Reg r = RID_XMM0;
+#else
+    Reg r = RID_FPRET;
+#endif
+    if ((as->freeset & RSET_FPR))
+      r = rset_pickbot((as->freeset & RSET_FPR));
+    if (!rset_test(as->freeset, r))
+      emit_spload(as, IR(regcost_ref(as->cost[r])), r, SPOFS_TMP);
+    for (ir = IR(as->orignins-1); ir->o == IR_PHI; ir--) {
+      if (ra_hasspill(ir->s)) {
+	IRIns *irl = IR(ir->op1);
+	if (ra_hasspill(irl->s) && irt_isfp(ir->t)) {
+	  emit_spstore(as, irl, r, sps_scale(irl->s));
+	  emit_spload(as, ir, r, sps_scale(ir->s));
+	}
+      }
+    }
+    if (!rset_test(as->freeset, r))
+      emit_spstore(as, IR(regcost_ref(as->cost[r])), r, SPOFS_TMP);
+  }
+#endif
+}
+
 /* Emit renames for left PHIs which are only spilled outside the loop. */
 static void asm_phi_fixup(ASMState *as)
 {
@@ -1120,7 +1190,7 @@ static void asm_phi(ASMState *as, IRIns *ir)
     if (ra_hasreg(irl->r) || ra_hasreg(irr->r))
       lj_trace_err(as->J, LJ_TRERR_NYIPHI);
     ra_spill(as, ir);
-    irl->s = irr->s = ir->s;  /* Sync left/right PHI spill slots. */
+    irr->s = ir->s;  /* Set right PHI spill slot. Sync left slot later. */
   }
 }
 
@@ -1130,6 +1200,7 @@ static void asm_loop_fixup(ASMState *as);
 /* Middle part of a loop. */
 static void asm_loop(ASMState *as)
 {
+  MCode *mcspill;
   /* LOOP is a guard, so the snapno is up to date. */
   as->loopsnapno = as->snapno;
   if (as->gcsteps)
@@ -1139,10 +1210,14 @@ static void asm_loop(ASMState *as)
   as->sectref = 0;
   if (!neverfuse(as)) as->fuseref = 0;
   asm_phi_shuffle(as);
+  mcspill = as->mcp;
+  asm_phi_copyspill(as);
   asm_loop_fixup(as);
   as->mcloop = as->mcp;
   RA_DBGX((as, "===== LOOP ====="));
   if (!as->realign) RA_DBG_FLUSH();
+  if (as->mcp != mcspill)
+    emit_jmp(as, mcspill);
 }
 
 /* -- Target-specific assembler ------------------------------------------- */
@@ -1153,6 +1228,8 @@ static void asm_loop(ASMState *as)
 #include "lj_asm_arm.h"
 #elif LJ_TARGET_PPC
 #include "lj_asm_ppc.h"
+#elif LJ_TARGET_MIPS
+#include "lj_asm_mips.h"
 #else
 #error "Missing assembler for target CPU"
 #endif
@@ -1211,8 +1288,10 @@ static void asm_head_side(ASMState *as)
     rs = asm_head_parentrs(as, ir);
     if (ra_hasreg(ir->r)) {
       rset_clear(allow, ir->r);
-      if (ra_hasspill(ir->s))
+      if (ra_hasspill(ir->s)) {
 	ra_save(as, ir, ir->r);
+	checkmclim(as);
+      }
     } else if (ra_hasspill(ir->s)) {
       irt_setmark(ir->t);
       pass2 = 1;
@@ -1528,9 +1607,7 @@ static void asm_setup_regsp(ASMState *as)
 #if LJ_SOFTFP
       case IR_MIN: case IR_MAX:
 #endif
-#if LJ_BE
 	(ir-1)->prev = REGSP_HINT(RID_RETLO);
-#endif
 	ir->prev = REGSP_HINT(RID_RETHI);
 	continue;
       default:

@@ -1,6 +1,6 @@
 /*
 ** Lua parser (source code -> bytecode).
-** Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 **
 ** Major portions taken verbatim or adapted from the Lua interpreter.
 ** Copyright (C) 1994-2008 Lua.org, PUC-Rio. See Copyright Notice in lua.h
@@ -269,20 +269,23 @@ static int jmp_novalue(FuncState *fs, BCPos list)
 /* Patch register of test instructions. */
 static int jmp_patchtestreg(FuncState *fs, BCPos pc, BCReg reg)
 {
-  BCIns *ip = &fs->bcbase[pc >= 1 ? pc-1 : pc].ins;
-  BCOp op = bc_op(*ip);
+  BCInsLine *ilp = &fs->bcbase[pc >= 1 ? pc-1 : pc];
+  BCOp op = bc_op(ilp->ins);
   if (op == BC_ISTC || op == BC_ISFC) {
-    if (reg != NO_REG && reg != bc_d(*ip)) {
-      setbc_a(ip, reg);
+    if (reg != NO_REG && reg != bc_d(ilp->ins)) {
+      setbc_a(&ilp->ins, reg);
     } else {  /* Nothing to store or already in the right register. */
-      setbc_op(ip, op+(BC_IST-BC_ISTC));
-      setbc_a(ip, 0);
+      setbc_op(&ilp->ins, op+(BC_IST-BC_ISTC));
+      setbc_a(&ilp->ins, 0);
     }
-  } else if (bc_a(*ip) == NO_REG) {
-    if (reg == NO_REG)
-      *ip = BCINS_AJ(BC_JMP, bc_a(fs->bcbase[pc].ins), 0);
-    else
-      setbc_a(ip, reg);
+  } else if (bc_a(ilp->ins) == NO_REG) {
+    if (reg == NO_REG) {
+      ilp->ins = BCINS_AJ(BC_JMP, bc_a(fs->bcbase[pc].ins), 0);
+    } else {
+      setbc_a(&ilp->ins, reg);
+      if (reg >= bc_a(ilp[1].ins))
+	setbc_a(&ilp[1].ins, reg+1);
+    }
   } else {
     return 0;  /* Cannot patch other instructions. */
   }
@@ -325,7 +328,7 @@ static void jmp_append(FuncState *fs, BCPos *l1, BCPos l2)
 
 /* Patch jump list and preserve produced values. */
 static void jmp_patchval(FuncState *fs, BCPos list, BCPos vtarget,
-		       BCReg reg, BCPos dtarget)
+			 BCReg reg, BCPos dtarget)
 {
   while (list != NO_JMP) {
     BCPos next = jmp_next(fs, list);
@@ -833,13 +836,14 @@ static void bcemit_comp(FuncState *fs, BinOpr opr, ExpDesc *e1, ExpDesc *e2)
     }
   } else {
     uint32_t op = opr-OPR_LT+BC_ISLT;
-    BCReg ra;
+    BCReg ra, rd;
     if ((op-BC_ISLT) & 1) {  /* GT -> LT, GE -> LE */
       e1 = e2; e2 = eret;  /* Swap operands. */
       op = ((op-BC_ISLT)^3)+BC_ISLT;
     }
+    rd = expr_toanyreg(fs, e2);
     ra = expr_toanyreg(fs, e1);
-    ins = BCINS_AD(op, ra, expr_toanyreg(fs, e2));
+    ins = BCINS_AD(op, ra, rd);
   }
   /* Using expr_free might cause asserts if the order is wrong. */
   if (e1->k == VNONRELOC && e1->u.s.info >= fs->nactvar) fs->freereg--;

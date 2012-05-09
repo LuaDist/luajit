@@ -1,7 +1,7 @@
 ------------------------------------------------------------------------------
 -- DynASM x86/x64 module.
 --
--- Copyright (C) 2005-2011 Mike Pall. All rights reserved.
+-- Copyright (C) 2005-2012 Mike Pall. All rights reserved.
 -- See dynasm.lua for full copyright notice.
 ------------------------------------------------------------------------------
 
@@ -23,7 +23,7 @@ local _M = { _info = _info }
 
 -- Cache library functions.
 local type, tonumber, pairs, ipairs = type, tonumber, pairs, ipairs
-local assert, unpack, setmetatable = assert, unpack, setmetatable
+local assert, unpack, setmetatable = assert, unpack or table.unpack, setmetatable
 local _s = string
 local sub, format, byte, char = _s.sub, _s.format, _s.byte, _s.char
 local find, match, gmatch, gsub = _s.find, _s.match, _s.gmatch, _s.gsub

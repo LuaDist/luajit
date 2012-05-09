@@ -1,6 +1,6 @@
 /*
 ** x86/x64 instruction emitter.
-** Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 */
 
 /* -- Emit basic instructions --------------------------------------------- */
@@ -381,6 +381,15 @@ static void emit_jcc(ASMState *as, int cc, MCode *target)
   p[-5] = (MCode)(XI_JCCn+(cc&15));
   p[-6] = 0x0f;
   as->mcp = p - 6;
+}
+
+/* jmp target */
+static void emit_jmp(ASMState *as, MCode *target)
+{
+  MCode *p = as->mcp;
+  *(int32_t *)(p-4) = jmprel(p, target);
+  p[-5] = XI_JMP;
+  as->mcp = p - 5;
 }
 
 /* call target */

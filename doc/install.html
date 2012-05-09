@@ -4,7 +4,7 @@
 <title>Installation</title>
 <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
 <meta name="Author" content="Mike Pall">
-<meta name="Copyright" content="Copyright (C) 2005-2011, Mike Pall">
+<meta name="Copyright" content="Copyright (C) 2005-2012, Mike Pall">
 <meta name="Language" content="en">
 <link rel="stylesheet" type="text/css" href="bluequad.css" media="screen">
 <link rel="stylesheet" type="text/css" href="bluequad-print.css" media="print">
@@ -80,6 +80,8 @@ td.compatno {
 <a href="http://luajit.org/performance.html">Performance <span class="ext">&raquo;</span></a>
 </li><li>
 <a href="http://luajit.org/download.html">Download <span class="ext">&raquo;</span></a>
+</li><li>
+<a href="http://luajit.org/list.html">Mailing List <span class="ext">&raquo;</span></a>
 </li></ul>
 </div>
 <div id="main">
@@ -104,7 +106,7 @@ operating systems, CPUs and compilers:
 <td class="compatcpu">CPU / OS</td>
 <td class="compatos"><a href="#posix">Linux</a> or<br><a href="#android">Android</a></td>
 <td class="compatos"><a href="#posix">*BSD, Other</a></td>
-<td class="compatos"><a href="#posix">OSX 10.3+</a> or<br><a href="#ios">iOS 3.0+</a></td>
+<td class="compatos"><a href="#posix">OSX 10.4+</a> or<br><a href="#ios">iOS 3.0+</a></td>
 <td class="compatos"><a href="#windows">Windows<br>XP/Vista/7</a></td>
 </tr>
 <tr class="odd separate">
@@ -137,6 +139,13 @@ operating systems, CPUs and compilers:
 </tr>
 <tr class="odd">
 <td class="compatcpu"><a href="#ppc">PPC/e500v2</a></td>
+<td class="compatos">GCC 4.3+</td>
+<td class="compatos">GCC 4.3+</td>
+<td class="compatos compatno">&nbsp;</td>
+<td class="compatos compatno">&nbsp;</td>
+</tr>
+<tr class="even">
+<td class="compatcpu"><a href="#mips">MIPS</a></td>
 <td class="compatos">GCC 4.3+</td>
 <td class="compatos">GCC 4.3+</td>
 <td class="compatos compatno">&nbsp;</td>
@@ -178,8 +187,8 @@ open a terminal window and change to this directory. Now unpack the archive
 and change to the newly created directory:
 </p>
 <pre class="code">
-tar zxf LuaJIT-2.0.0-beta9.tar.gz
-cd LuaJIT-2.0.0-beta9</pre>
+tar zxf LuaJIT-2.0.0-beta10.tar.gz
+cd LuaJIT-2.0.0-beta10</pre>
 <h3>Building LuaJIT</h3>
 <p>
 The supplied Makefiles try to auto-detect the settings needed for your
@@ -203,8 +212,8 @@ You can add an extra prefix to the search paths by appending the
 make PREFIX=/home/myself/lj2
 </pre>
 <p>
-Note for OSX: <tt>MACOSX_DEPLOYMENT_TARGET</tt> is set to <tt>10.4</tt>
-in <tt>src/Makefile</tt>. Change it, if you want to build on an older version.
+Note for OSX: if the <tt>MACOSX_DEPLOYMENT_TARGET</tt> environment
+variable is not set, then it's forced to <tt>10.4</tt>.
 </p>
 <h3>Installing LuaJIT</h3>
 <p>
@@ -229,11 +238,11 @@ Obviously the prefixes given during build and installation need to be the same.
 <p style="color: #c00000;">
 Note: to avoid overwriting a previous version, the beta test releases
 only install the LuaJIT executable under the versioned name (i.e.
-<tt>luajit-2.0.0-beta9</tt>). You probably want to create a symlink
+<tt>luajit-2.0.0-beta10</tt>). You probably want to create a symlink
 for convenience, with a command like this:
 </p>
 <pre class="code" style="color: #c00000;">
-sudo ln -sf luajit-2.0.0-beta9&nbsp;/usr/local/bin/luajit
+sudo ln -sf luajit-2.0.0-beta10&nbsp;/usr/local/bin/luajit
 </pre>
 
 <h2 id="windows">Windows Systems</h2>
@@ -355,7 +364,7 @@ EGLIBC). The <tt>CROSS</tt> prefix may vary depending on the
 <tt>--target</tt> of the toolchain:
 </p>
 <pre class="code">
-make HOST_CC="gcc -m32" CROSS=arm-linux-gnueabi- TARGET=arm
+make HOST_CC="gcc -m32" CROSS=arm-linux-gnueabi-
 </pre>
 <p>
 You can cross-compile for <b id="android">Android (ARM)</b> using the <a href="http://developer.android.com/sdk/ndk/index.html"><span class="ext">&raquo;</span>&nbsp;Android NDK</a>.
@@ -368,7 +377,7 @@ NDKABI=8
 NDKVER=$NDK/toolchains/arm-linux-androideabi-4.4.3
 NDKP=$NDKVER/prebuilt/linux-x86/bin/arm-linux-androideabi-
 NDKF="--sysroot $NDK/platforms/android-$NDKABI/arch-arm"
-make HOST_CC="gcc -m32" CROSS=$NDKP TARGET_FLAGS="$NDKF" TARGET=arm
+make HOST_CC="gcc -m32" CROSS=$NDKP TARGET_FLAGS="$NDKF"
 </pre>
 <p>
 You can cross-compile for <b id="ios">iOS 3.0+</b> (iPhone/iPad) using the <a href="http://developer.apple.com/devcenter/ios/index.action"><span class="ext">&raquo;</span>&nbsp;iOS SDK</a>.
@@ -387,7 +396,7 @@ ISDKVER=iPhoneOS4.3.sdk
 ISDKP=$ISDK/usr/bin/
 ISDKF="-arch armv6 -isysroot $ISDK/SDKs/$ISDKVER"
 make HOST_CC="gcc -m32 -arch i386" CROSS=$ISDKP TARGET_FLAGS="$ISDKF" \
-     TARGET=arm TARGET_SYS=iOS
+     TARGET_SYS=iOS
 </pre>
 <p>
 You can cross-compile for a <b id="ppc">PPC target</b> or a
@@ -398,11 +407,26 @@ of the toolchain:
 </p>
 <pre class="code">
 # PPC
-make HOST_CC="gcc -m32" CROSS=powerpc-linux-gnu- TARGET=ppc
+make HOST_CC="gcc -m32" CROSS=powerpc-linux-gnu-
 </pre>
 <pre class="code">
 # PPC/e500v2
-make HOST_CC="gcc -m32" CROSS=powerpc-e500v2-linux-gnuspe- TARGET=ppcspe
+make HOST_CC="gcc -m32" CROSS=powerpc-e500v2-linux-gnuspe-
+</pre>
+<p>
+You can cross-compile for a big-endian or little-endian
+<b id="mips">MIPS target</b> on x86 or x64 host systems using a standard
+GNU cross-compile toolchain (Binutils, GCC, EGLIBC).
+The <tt>CROSS</tt> prefix may vary depending on the <tt>--target</tt>
+of the toolchain:
+</p>
+<pre class="code">
+# MIPS big-endian
+make HOST_CC="gcc -m32" CROSS=mips-linux-
+</pre>
+<pre class="code">
+# MIPS little-endian
+make HOST_CC="gcc -m32" CROSS=mipsel-linux-
 </pre>
 <p>
 Whenever the <b>host OS and the target OS differ</b>, you need to specify
@@ -533,7 +557,7 @@ to me (the upstream) and not you (the package maintainer), anyway.
 </div>
 <div id="foot">
 <hr class="hide">
-Copyright &copy; 2005-2011 Mike Pall
+Copyright &copy; 2005-2012 Mike Pall
 <span class="noprint">
 &middot;
 <a href="contact.html">Contact</a>

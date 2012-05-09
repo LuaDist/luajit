@@ -1,6 +1,6 @@
 /*
 ** IR CALL* instruction definitions.
-** Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #ifndef _LJ_IRCALL_H
@@ -66,7 +66,7 @@ typedef struct CCallInfo {
 #define IRCALLCOND_SOFTFP_FFI(x)	NULL
 #endif
 
-#define LJ_NEED_FP64			LJ_TARGET_PPC
+#define LJ_NEED_FP64			(LJ_TARGET_PPC || LJ_TARGET_MIPS)
 
 #if LJ_HASFFI && (LJ_SOFTFP || LJ_NEED_FP64)
 #define IRCALLCOND_FP64_FFI(x)		x
@@ -114,9 +114,9 @@ typedef struct CCallInfo {
   _(ANY,	lj_mem_newgco,		2,  FS, P32, CCI_L) \
   _(ANY,	lj_math_random_step, 1, FS, NUM, CCI_CASTU64|CCI_NOFPRCLOBBER) \
   _(ANY,	lj_vm_modi,		2,  FN, INT, 0) \
-  _(ANY,	sinh,			1,  N, NUM, 0) \
-  _(ANY,	cosh,			1,  N, NUM, 0) \
-  _(ANY,	tanh,			1,  N, NUM, 0) \
+  _(ANY,	sinh,			ARG1_FP,  N, NUM, 0) \
+  _(ANY,	cosh,			ARG1_FP,  N, NUM, 0) \
+  _(ANY,	tanh,			ARG1_FP,  N, NUM, 0) \
   _(ANY,	fputc,			2,  S, INT, 0) \
   _(ANY,	fwrite,			4,  S, INT, 0) \
   _(ANY,	fflush,			1,  S, INT, 0) \
@@ -157,8 +157,8 @@ typedef struct CCallInfo {
   _(FP64_FFI,	fp64_ul2d,		2,   N, NUM, 0) \
   _(FP64_FFI,	fp64_l2f,		2,   N, FLOAT, 0) \
   _(FP64_FFI,	fp64_ul2f,		2,   N, FLOAT, 0) \
-  _(FP64_FFI,	fp64_d2l,		2,   N, I64, 0) \
-  _(FP64_FFI,	fp64_d2ul,		2,   N, U64, 0) \
+  _(FP64_FFI,	fp64_d2l,		ARG1_FP,   N, I64, 0) \
+  _(FP64_FFI,	fp64_d2ul,		ARG1_FP,   N, U64, 0) \
   _(FP64_FFI,	fp64_f2l,		1,   N, I64, 0) \
   _(FP64_FFI,	fp64_f2ul,		1,   N, U64, 0) \
   _(FFI,	lj_carith_divi64,	ARG2_64,   N, I64, CCI_NOFPRCLOBBER) \

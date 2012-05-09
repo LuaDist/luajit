@@ -1,6 +1,6 @@
 /*
 ** Lexical analyzer.
-** Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 **
 ** Major portions taken verbatim or adapted from the Lua interpreter.
 ** Copyright (C) 1994-2008 Lua.org, PUC-Rio. See Copyright Notice in lua.h
@@ -137,14 +137,17 @@ static int lex_number64(LexState *ls, TValue *tv)
 /* Parse a number literal. */
 static void lex_number(LexState *ls, TValue *tv)
 {
-  int c;
+  int c, xp = 'E';
   lua_assert(lj_char_isdigit(ls->current));
-  do {
+  if ((c = ls->current) == '0') {
+    save_and_next(ls);
+    if ((ls->current & ~0x20) == 'X') xp = 'P';
+  }
+  while (lj_char_isident(ls->current) || ls->current == '.' ||
+	 ((ls->current == '-' || ls->current == '+') && (c & ~0x20) == xp)) {
     c = ls->current;
     save_and_next(ls);
-  } while (lj_char_isident(ls->current) || ls->current == '.' ||
-	   ((ls->current == '-' || ls->current == '+') &&
-	    ((c & ~0x20) == 'E' || (c & ~0x20) == 'P')));
+  }
 #if LJ_HASFFI
   c &= ~0x20;
   if ((c == 'I' || c == 'L' || c == 'U') && !ctype_ctsG(G(ls->L)))
@@ -408,6 +411,7 @@ static int llex(LexState *ls, TValue *tv)
 /* Setup lexer state. */
 int lj_lex_setup(lua_State *L, LexState *ls)
 {
+  int header = 0;
   ls->L = L;
   ls->fs = NULL;
   ls->n = 0;
@@ -427,6 +431,7 @@ int lj_lex_setup(lua_State *L, LexState *ls)
     ls->n -= 2;
     ls->p += 2;
     next(ls);
+    header = 1;
   }
   if (ls->current == '#') {  /* Skip POSIX #! header line. */
     do {
@@ -434,8 +439,22 @@ int lj_lex_setup(lua_State *L, LexState *ls)
       if (ls->current == END_OF_STREAM) return 0;
     } while (!currIsNewline(ls));
     inclinenumber(ls);
+    header = 1;
   }
-  return (ls->current == LUA_SIGNATURE[0]);  /* Bytecode dump? */
+  if (ls->current == LUA_SIGNATURE[0]) {  /* Bytecode dump. */
+    if (header) {
+      /*
+      ** Loading bytecode with an extra header is disabled for security
+      ** reasons. This may circumvent the usual check for bytecode vs.
+      ** Lua code by looking at the first char. Since this is a potential
+      ** security violation no attempt is made to echo the chunkname either.
+      */
+      setstrV(L, L->top++, lj_err_str(L, LJ_ERR_BCHEAD));
+      lj_err_throw(L, LUA_ERRSYNTAX);
+    }
+    return 1;
+  }
+  return 0;
 }
 
 /* Cleanup lexer state. */

@@ -1,6 +1,6 @@
 /*
 ** Stack frames.
-** Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #ifndef _LJ_FRAME_H
@@ -116,6 +116,15 @@ enum {
 #define CFRAME_OFS_PC		12
 #define CFRAME_OFS_MULTRES	8
 #define CFRAME_SIZE		184
+#define CFRAME_SHIFT_MULTRES	3
+#elif LJ_TARGET_MIPS
+#define CFRAME_OFS_ERRF		124
+#define CFRAME_OFS_NRES		120
+#define CFRAME_OFS_PREV		116
+#define CFRAME_OFS_L		112
+#define CFRAME_OFS_PC		20
+#define CFRAME_OFS_MULTRES	16
+#define CFRAME_SIZE		112
 #define CFRAME_SHIFT_MULTRES	3
 #else
 #error "Missing CFRAME_* definitions for this architecture"

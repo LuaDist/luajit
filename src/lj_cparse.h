@@ -1,6 +1,6 @@
 /*
 ** C declaration parser.
-** Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #ifndef _LJ_CPARSE_H
@@ -23,6 +23,7 @@
 #define CPARSE_MODE_DIRECT	4	/* Accept direct declarators. */
 #define CPARSE_MODE_FIELD	8	/* Accept field width in bits, too. */
 #define CPARSE_MODE_NOIMPLICIT	16	/* Reject implicit declarations. */
+#define CPARSE_MODE_SKIP	32	/* Skip definitions, ignore errors. */
 
 typedef int CPChar;	/* C parser character. Unsigned ext. from char. */
 typedef int CPToken;	/* C parser token. */

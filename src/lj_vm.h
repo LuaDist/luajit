@@ -1,6 +1,6 @@
 /*
 ** Assembler VM interface definitions.
-** Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #ifndef _LJ_VM_H
@@ -26,6 +26,9 @@ LJ_ASMF void lj_vm_unwind_rethrow(void);
 /* Miscellaneous functions. */
 #if LJ_TARGET_X86ORX64
 LJ_ASMF int lj_vm_cpuid(uint32_t f, uint32_t res[4]);
+#endif
+#if LJ_TARGET_PPC
+void lj_vm_cachesync(void *start, void *end);
 #endif
 LJ_ASMF double lj_vm_foldarith(double x, double y, int op);
 #if LJ_HASJIT

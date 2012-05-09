@@ -1,6 +1,6 @@
 /*
 ** C type management.
-** Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #include "lj_obj.h"
@@ -43,7 +43,7 @@
 #define CTKWDEF(_) \
   /* Type specifiers. */ \
   _("void",		-1,	CTOK_VOID) \
-  _("_Bool",		1,	CTOK_BOOL) \
+  _("_Bool",		0,	CTOK_BOOL) \
   _("bool",		1,	CTOK_BOOL) \
   _("char",		1,	CTOK_CHAR) \
   _("int",		4,	CTOK_INT) \

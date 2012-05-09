@@ -1,6 +1,6 @@
 /*
 ** State and stack handling.
-** Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 **
 ** Portions taken verbatim or adapted from the Lua interpreter.
 ** Copyright (C) 1994-2008 Lua.org, PUC-Rio. See Copyright Notice in lua.h
@@ -225,8 +225,8 @@ static TValue *cpfinalize(lua_State *L, lua_CFunction dummy, void *ud)
 {
   UNUSED(dummy);
   UNUSED(ud);
-  lj_gc_finalize_udata(L);
   lj_gc_finalize_cdata(L);
+  lj_gc_finalize_udata(L);
   /* Frame pop omitted. */
   return NULL;
 }
@@ -234,6 +234,7 @@ static TValue *cpfinalize(lua_State *L, lua_CFunction dummy, void *ud)
 LUA_API void lua_close(lua_State *L)
 {
   global_State *g = G(L);
+  int i;
   L = mainthread(g);  /* Only the main thread can be closed. */
   lj_func_closeuv(L, tvref(L->stack));
   lj_gc_separateudata(g, 1);  /* Separate udata which have GC metamethods. */
@@ -242,12 +243,18 @@ LUA_API void lua_close(lua_State *L)
   G2J(g)->state = LJ_TRACE_IDLE;
   lj_dispatch_update(g);
 #endif
-  do {
+  for (i = 0; i < 10; ) {
     hook_enter(g);
     L->status = 0;
     L->cframe = NULL;
     L->base = L->top = tvref(L->stack) + 1;
-  } while (lj_vm_cpcall(L, NULL, NULL, cpfinalize) != 0);
+    if (lj_vm_cpcall(L, NULL, NULL, cpfinalize) == 0) {
+      lj_gc_separateudata(g, 1);  /* Separate udata again. */
+      if (gcref(g->gc.mmudata) == NULL)  /* Until nothing is left to do. */
+	break;
+      i++;
+    }
+  }
   close_state(L);
 }
 

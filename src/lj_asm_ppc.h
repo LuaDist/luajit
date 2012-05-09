@@ -1,6 +1,6 @@
 /*
 ** PPC IR assembler (SSA IR -> machine code).
-** Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 */
 
 /* -- Register allocator extensions --------------------------------------- */
@@ -187,10 +187,11 @@ static void asm_fusexref(ASMState *as, PPCIns pi, Reg rt, IRRef ref,
 	ref = ir->op2;
       } else {
 	/* NYI: Fuse ADD with constant. */
-	Reg right, left = ra_alloc2(as, ir, allow);
+	Reg tmp, right, left = ra_alloc2(as, ir, allow);
 	right = (left >> 8); left &= 255;
-	emit_fai(as, pi, rt, rt, ofs);
-	emit_tab(as, PPCI_ADD, rt, left, right);
+	tmp = ra_scratch(as, rset_exclude(rset_exclude(allow, left), right));
+	emit_fai(as, pi, rt, tmp, ofs);
+	emit_tab(as, PPCI_ADD, tmp, left, right);
 	return;
       }
       if (!checki16(ofs)) {
@@ -729,12 +730,12 @@ static void asm_hrefk(ASMState *as, IRIns *ir)
   IRIns *irkey = IR(kslot->op1);
   int32_t ofs = (int32_t)(kslot->op2 * sizeof(Node));
   int32_t kofs = ofs + (int32_t)offsetof(Node, key);
-  Reg dest = (ra_used(ir)||ofs > 65535) ? ra_dest(as, ir, RSET_GPR) : RID_NONE;
+  Reg dest = (ra_used(ir)||ofs > 32736) ? ra_dest(as, ir, RSET_GPR) : RID_NONE;
   Reg node = ra_alloc1(as, ir->op1, RSET_GPR);
   Reg key = RID_NONE, type = RID_TMP, idx = node;
   RegSet allow = rset_exclude(RSET_GPR, node);
   lua_assert(ofs % sizeof(Node) == 0);
-  if (ofs > 65535) {
+  if (ofs > 32736) {
     idx = dest;
     rset_clear(allow, dest);
     kofs = (int32_t)offsetof(Node, key);
@@ -760,7 +761,7 @@ static void asm_hrefk(ASMState *as, IRIns *ir)
   }
   if (ra_hasreg(key)) emit_tai(as, PPCI_LWZ, key, idx, kofs+4);
   emit_tai(as, PPCI_LWZ, type, idx, kofs);
-  if (ofs > 65535) {
+  if (ofs > 32736) {
     emit_tai(as, PPCI_ADDIS, dest, dest, (ofs + 32768) >> 16);
     emit_tai(as, PPCI_ADDI, dest, node, ofs);
   }

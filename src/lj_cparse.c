@@ -1,6 +1,6 @@
 /*
 ** C declaration parser.
-** Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #include "lj_obj.h"
@@ -187,7 +187,7 @@ static CPToken cp_integer(CPState *cp)
       break;
     cp_get(cp);
   }
-  if (lj_char_isident(cp->c))
+  if (lj_char_isident(cp->c) && !(cp->mode & CPARSE_MODE_SKIP))
     cp_errmsg(cp, cp->c, LJ_ERR_XNUMBER);
   return CTOK_INTEGER;
 }
@@ -1502,8 +1502,13 @@ end_decl:
     /* Determine type info and size. */
     CTInfo info = CTINFO(CT_NUM, (cds & CDF_UNSIGNED) ? CTF_UNSIGNED : 0);
     if ((cds & CDF_BOOL)) {
-      info = CTINFO(CT_NUM, CTF_UNSIGNED|CTF_BOOL);
-      lua_assert(sz == 1);
+      if ((cds & ~(CDF_SCL|CDF_BOOL|CDF_INT|CDF_SIGNED|CDF_UNSIGNED)))
+	cp_errmsg(cp, 0, LJ_ERR_FFI_INVTYPE);
+      info |= CTF_BOOL;
+      if (!sz) {
+	if (!(cds & CDF_SIGNED)) info |= CTF_UNSIGNED;
+	sz = 1;
+      }
     } else if ((cds & CDF_FP)) {
       info = CTINFO(CT_NUM, CTF_FP);
       if ((cds & CDF_LONG)) sz = sizeof(long double);
@@ -1593,12 +1598,14 @@ static void cp_decl_func(CPState *cp, CPDecl *fdecl)
   cp_check(cp, ')');
   if (cp_opt(cp, '{')) {  /* Skip function definition. */
     int level = 1;
+    cp->mode |= CPARSE_MODE_SKIP;
     for (;;) {
       if (cp->tok == '{') level++;
       else if (cp->tok == '}' && --level == 0) break;
       else if (cp->tok == CTOK_EOF) cp_err_token(cp, '}');
       cp_next(cp);
     }
+    cp->mode &= ~CPARSE_MODE_SKIP;
     cp->tok = ';';  /* Ok for cp_decl_multi(), error in cp_decl_single(). */
   }
   info |= (fdecl->fattr & ~CTMASK_CID);
@@ -1728,6 +1735,10 @@ static void cp_decl_multi(CPState *cp)
   while (cp->tok != CTOK_EOF) {
     CPDecl decl;
     CPscl scl;
+    if (cp_opt(cp, ';')) {  /* Skip empty statements. */
+      first = 0;
+      continue;
+    }
     if (cp->tok == '#') {  /* Workaround, since we have no preprocessor, yet. */
       BCLine pragmaline = cp->linenumber;
       if (!(cp_next(cp) == CTOK_IDENT &&

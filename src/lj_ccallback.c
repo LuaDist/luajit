@@ -1,6 +1,6 @@
 /*
 ** FFI C callback handling.
-** Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #include "lj_obj.h"
@@ -18,6 +18,7 @@
 #include "lj_ccallback.h"
 #include "lj_target.h"
 #include "lj_mcode.h"
+#include "lj_trace.h"
 #include "lj_vm.h"
 
 /* -- Target-specific handling of callback slots -------------------------- */
@@ -51,6 +52,13 @@ static MSize CALLBACK_OFS2SLOT(MSize ofs)
 #define CALLBACK_MAX_SLOT		(CALLBACK_OFS2SLOT(CALLBACK_MCODE_SIZE))
 
 #elif LJ_TARGET_PPC
+
+#define CALLBACK_MCODE_HEAD		24
+#define CALLBACK_SLOT2OFS(slot)		(CALLBACK_MCODE_HEAD + 8*(slot))
+#define CALLBACK_OFS2SLOT(ofs)		(((ofs)-CALLBACK_MCODE_HEAD)/8)
+#define CALLBACK_MAX_SLOT		(CALLBACK_OFS2SLOT(CALLBACK_MCODE_SIZE))
+
+#elif LJ_TARGET_MIPS
 
 #define CALLBACK_MCODE_HEAD		24
 #define CALLBACK_SLOT2OFS(slot)		(CALLBACK_MCODE_HEAD + 8*(slot))
@@ -155,6 +163,25 @@ static void callback_mcode_init(global_State *g, uint32_t *page)
     *p++ = PPCI_LI | PPCF_T(RID_R11) | slot;
     *p = PPCI_B | (((page-p) & 0x00ffffffu) << 2);
     p++;
+  }
+  lua_assert(p - page <= CALLBACK_MCODE_SIZE);
+}
+#elif LJ_TARGET_MIPS
+static void callback_mcode_init(global_State *g, uint32_t *page)
+{
+  uint32_t *p = page;
+  void *target = (void *)lj_vm_ffi_callback;
+  MSize slot;
+  *p++ = MIPSI_SW | MIPSF_T(RID_R1)|MIPSF_S(RID_SP) | 0;
+  *p++ = MIPSI_LUI | MIPSF_T(RID_R3) | (u32ptr(target) >> 16);
+  *p++ = MIPSI_LUI | MIPSF_T(RID_R2) | (u32ptr(g) >> 16);
+  *p++ = MIPSI_ORI | MIPSF_T(RID_R3)|MIPSF_S(RID_R3) |(u32ptr(target)&0xffff);
+  *p++ = MIPSI_JR | MIPSF_S(RID_R3);
+  *p++ = MIPSI_ORI | MIPSF_T(RID_R2)|MIPSF_S(RID_R2) | (u32ptr(g)&0xffff);
+  for (slot = 0; slot < CALLBACK_MAX_SLOT; slot++) {
+    *p = MIPSI_B | ((page-p-1) & 0x0000ffffu);
+    p++;
+    *p++ = MIPSI_LI | MIPSF_T(RID_R1) | slot;
   }
   lua_assert(p - page <= CALLBACK_MCODE_SIZE);
 }
@@ -274,6 +301,7 @@ void lj_ccallback_mcode_free(CTState *cts)
 #elif LJ_TARGET_ARM
 
 #define CALLBACK_HANDLE_REGARG \
+  UNUSED(isfp); \
   if (n > 1) ngpr = (ngpr + 1u) & ~1u;  /* Align to regpair. */ \
   if (ngpr + n <= maxgpr) { \
     sp = &cts->cb.gpr[ngpr]; \
@@ -306,6 +334,27 @@ void lj_ccallback_mcode_free(CTState *cts)
 #define CALLBACK_HANDLE_RET \
   if (ctype_isfp(ctr->info) && ctr->size == sizeof(float)) \
     *(double *)dp = *(float *)dp;  /* FPRs always hold doubles. */
+
+#elif LJ_TARGET_MIPS
+
+#define CALLBACK_HANDLE_REGARG \
+  if (isfp && nfpr < CCALL_NARG_FPR) {  /* Try to pass argument in FPRs. */ \
+    sp = (void *)((uint8_t *)&cts->cb.fpr[nfpr] + ((LJ_BE && n==1) ? 4 : 0)); \
+    nfpr++; ngpr += n; \
+    goto done; \
+  } else {  /* Try to pass argument in GPRs. */ \
+    nfpr = CCALL_NARG_FPR; \
+    if (n > 1) ngpr = (ngpr + 1u) & ~1u;  /* Align to regpair. */ \
+    if (ngpr + n <= maxgpr) { \
+      sp = &cts->cb.gpr[ngpr]; \
+      ngpr += n; \
+      goto done; \
+    } \
+  }
+
+#define CALLBACK_HANDLE_RET \
+  if (ctype_isfp(ctr->info) && ctr->size == sizeof(float)) \
+    ((float *)dp)[1] = *(float *)dp;
 
 #else
 #error "Missing calling convention definitions for this architecture"
@@ -438,6 +487,7 @@ lua_State * LJ_FASTCALL lj_ccallback_enter(CTState *cts, void *cf)
   lua_assert(L != NULL);
   if (gcref(cts->g->jit_L))
     lj_err_caller(gco2th(gcref(cts->g->jit_L)), LJ_ERR_FFI_BADCBACK);
+  lj_trace_abort(cts->g);  /* Never record across callback. */
   /* Setup C frame. */
   cframe_prev(cf) = L->cframe;
   setcframe_L(cf, L);
@@ -455,17 +505,20 @@ void LJ_FASTCALL lj_ccallback_leave(CTState *cts, TValue *o)
   GCfunc *fn;
   TValue *obase = L->base;
   L->base = L->top;  /* Keep continuation frame for throwing errors. */
-  /* PC of RET* is lost. Point to last line for result conv. errors. */
-  fn = curr_func(L);
-  if (isluafunc(fn)) {
-    GCproto *pt = funcproto(fn);
-    setcframe_pc(L->cframe, proto_bc(pt)+pt->sizebc+1);
+  if (o >= L->base) {
+    /* PC of RET* is lost. Point to last line for result conv. errors. */
+    fn = curr_func(L);
+    if (isluafunc(fn)) {
+      GCproto *pt = funcproto(fn);
+      setcframe_pc(L->cframe, proto_bc(pt)+pt->sizebc+1);
+    }
   }
   callback_conv_result(cts, L, o);
   /* Finally drop C frame and continuation frame. */
   L->cframe = cframe_prev(L->cframe);
   L->top -= 2;
   L->base = obase;
+  cts->cb.slot = 0;  /* Blacklist C function that called the callback. */
 }
 
 /* -- C callback management ----------------------------------------------- */

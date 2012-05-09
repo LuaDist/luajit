@@ -1,6 +1,6 @@
 /*
 ** Base and coroutine library.
-** Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 **
 ** Major portions taken verbatim or adapted from the Lua interpreter.
 ** Copyright (C) 1994-2011 Lua.org, PUC-Rio. See Copyright Notice in lua.h
@@ -592,8 +592,10 @@ LJLIB_NOREG LJLIB_ASM(coroutine_wrap_aux)
 
 /* Inline declarations. */
 LJ_ASMF void lj_ff_coroutine_wrap_aux(void);
+#if !(LJ_TARGET_MIPS && defined(ljamalg_c))
 LJ_FUNCA_NORET void LJ_FASTCALL lj_ffh_coroutine_wrap_err(lua_State *L,
 							  lua_State *co);
+#endif
 
 /* Error handler, called from assembler VM. */
 void LJ_FASTCALL lj_ffh_coroutine_wrap_err(lua_State *L, lua_State *co)

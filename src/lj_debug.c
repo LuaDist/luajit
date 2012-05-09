@@ -1,6 +1,6 @@
 /*
 ** Debugging and introspection.
-** Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #define lj_debug_c
@@ -279,6 +279,8 @@ const char *lj_debug_funcname(lua_State *L, TValue *frame, const char **name)
   TValue *pframe;
   GCfunc *fn;
   BCPos pc;
+  if (frame <= tvref(L->stack))
+    return NULL;
   if (frame_isvarg(frame))
     frame = frame_prevd(frame);
   pframe = frame_prev(frame);

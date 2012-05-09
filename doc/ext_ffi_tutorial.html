@@ -4,7 +4,7 @@
 <title>FFI Tutorial</title>
 <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
 <meta name="Author" content="Mike Pall">
-<meta name="Copyright" content="Copyright (C) 2005-2011, Mike Pall">
+<meta name="Copyright" content="Copyright (C) 2005-2012, Mike Pall">
 <meta name="Language" content="en">
 <link rel="stylesheet" type="text/css" href="bluequad.css" media="screen">
 <link rel="stylesheet" type="text/css" href="bluequad-print.css" media="print">
@@ -64,6 +64,8 @@ td.idiomlua b { font-weight: normal; color: #2142bf; }
 <a href="http://luajit.org/performance.html">Performance <span class="ext">&raquo;</span></a>
 </li><li>
 <a href="http://luajit.org/download.html">Download <span class="ext">&raquo;</span></a>
+</li><li>
+<a href="http://luajit.org/list.html">Mailing List <span class="ext">&raquo;</span></a>
 </li></ul>
 </div>
 <div id="main">
@@ -92,6 +94,11 @@ local ffi = require("ffi")
 Please note this doesn't define an <tt>ffi</tt> variable in the table
 of globals &mdash; you really need to use the local variable. The
 <tt>require</tt> function ensures the library is only loaded once.
+</p>
+<p style="font-size: 8pt;">
+Note: If you want to experiment with the FFI from the interactive prompt
+of the command line executable, omit the <tt>local</tt>, as it doesn't
+preserve local variables across lines.
 </p>
 
 <h2 id="sleep">Accessing Standard System Functions</h2>
@@ -588,7 +595,7 @@ it to a local variable in the function scope is unnecessary.
 </div>
 <div id="foot">
 <hr class="hide">
-Copyright &copy; 2005-2011 Mike Pall
+Copyright &copy; 2005-2012 Mike Pall
 <span class="noprint">
 &middot;
 <a href="contact.html">Contact</a>

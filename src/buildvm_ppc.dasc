@@ -1,6 +1,6 @@
 |// Low-level VM code for PowerPC CPUs.
 |// Bytecode interpreter, fast functions and helper functions.
-|// Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+|// Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 |
 |.arch ppc
 |.section code_op, code_sub
@@ -501,22 +501,22 @@ static void build_subroutines(BuildCtx *ctx)
   |   lwz TMP1, L->top
   |  lwz PC, FRAME_PC(BASE)
   |     lus TMP3, 0x59c0		// TOBIT = 2^52 + 2^51 (float).
-  |   sub RD, TMP1, BASE
   |    stb CARG3, L->status
   |     stw TMP3, TMPD
-  |  andi. TMP0, PC, FRAME_TYPE
   |     ori TMP3, TMP3, 0x0004		// TONUM = 2^52 + 2^51 + 2^31 (float).
   |     lfs TOBIT, TMPD
-  |     li ZERO, 0
+  |   sub RD, TMP1, BASE
   |     stw TMP3, TMPD
-  |   addi RD, RD, 8
   |     lus TMP0, 0x4338		// Hiword of 2^52 + 2^51 (double)
-  |   mr MULTRES, RD
+  |   addi RD, RD, 8
   |     stw TMP0, TONUM_HI
   |    li_vmstate INTERP
+  |     li ZERO, 0
+  |    st_vmstate
+  |  andi. TMP0, PC, FRAME_TYPE
+  |   mr MULTRES, RD
   |     lfs TONUM, TMPD
   |     li TISNIL, LJ_TNIL
-  |    st_vmstate
   |  beq ->BC_RET_Z
   |  b ->vm_return
   |
@@ -1142,7 +1142,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  b ->fff_restv
   |
   |.ffunc rawget
-  |  cmplwi NARGS8:RC, 8
+  |  cmplwi NARGS8:RC, 16
   |   lwz CARG4, 0(BASE)
   |    lwz TAB:CARG2, 4(BASE)
   |  blt ->fff_fallback
@@ -1347,7 +1347,6 @@ static void build_subroutines(BuildCtx *ctx)
   |  cmplwi NARGS8:RC, 16
   |   lwz CARG4, 8(BASE)
   |    lfd FARG2, 8(BASE)
-  |   lwz CARG3, 0(BASE)
   |    lfd FARG1, 0(BASE)
   |  blt ->fff_fallback
   |  lbz TMP1, DISPATCH_GL(hookmask)(DISPATCH)
@@ -1356,9 +1355,9 @@ static void build_subroutines(BuildCtx *ctx)
   |   la BASE, 16(BASE)
   |  // Remember active hook before pcall.
   |  rlwinm TMP1, TMP1, 32-HOOK_ACTIVE_SHIFT, 31, 31
-  |   stfd FARG2, 0(TMP2)		// Swap function and traceback.
+  |    stfd FARG2, 0(TMP2)		// Swap function and traceback.
   |  subi NARGS8:RC, NARGS8:RC, 16
-  |   stfd FARG1, 8(TMP2)
+  |    stfd FARG1, 8(TMP2)
   |  addi PC, TMP1, 16+FRAME_PCALL
   |  b ->vm_call_dispatch
   |
@@ -2534,6 +2533,31 @@ static void build_subroutines(BuildCtx *ctx)
   |//-- Miscellaneous functions --------------------------------------------
   |//-----------------------------------------------------------------------
   |
+  |// void lj_vm_cachesync(void *start, void *end)
+  |// Flush D-Cache and invalidate I-Cache. Assumes 32 byte cache line size.
+  |// This is a good lower bound, except for very ancient PPC models.
+  |->vm_cachesync:
+  |  // Compute start of first cache line and number of cache lines.
+  |  rlwinm CARG1, CARG1, 0, 0, 26
+  |  sub CARG2, CARG2, CARG1
+  |  addi CARG2, CARG2, 31
+  |  rlwinm. CARG2, CARG2, 27, 5, 31
+  |  beqlr
+  |  mtctr CARG2
+  |  mr CARG3, CARG1
+  |1:  // Flush D-Cache.
+  |  dcbst r0, CARG1
+  |  addi CARG1, CARG1, 32
+  |  bdnz <1
+  |  sync
+  |  mtctr CARG2
+  |1:  // Invalidate I-Cache.
+  |  icbi r0, CARG3
+  |  addi CARG3, CARG3, 32
+  |  bdnz <1
+  |  isync
+  |  blr
+  |
   |//-----------------------------------------------------------------------
   |//-- FFI helper functions -----------------------------------------------
   |//-----------------------------------------------------------------------
@@ -2570,14 +2594,14 @@ static void build_subroutines(BuildCtx *ctx)
   |  bl extern lj_ccallback_enter	// (CTState *cts, void *cf)
   |  // Returns lua_State *.
   |  lwz BASE, L:CRET1->base
-  |     li TISNUM, LJ_TISNUM            // Setup type comparison constants.
+  |     li TISNUM, LJ_TISNUM		// Setup type comparison constants.
   |  lwz RC, L:CRET1->top
-  |     lus TMP3, 0x59c0                // TOBIT = 2^52 + 2^51 (float).
+  |     lus TMP3, 0x59c0		// TOBIT = 2^52 + 2^51 (float).
   |     li ZERO, 0
   |   mr L, CRET1
   |     stw TMP3, TMPD
   |  lwz LFUNC:RB, FRAME_FUNC(BASE)
-  |     ori TMP3, TMP3, 0x0004          // TONUM = 2^52 + 2^51 + 2^31 (float).
+  |     ori TMP3, TMP3, 0x0004		// TONUM = 2^52 + 2^51 + 2^31 (float).
   |     li TISNIL, LJ_TNIL
   |    li_vmstate INTERP
   |     lfs TOBIT, TMPD
@@ -2588,7 +2612,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  ins_callt
 #endif
   |
-  |->cont_ffi_callback:                 // Return from FFI callback.
+  |->cont_ffi_callback:			// Return from FFI callback.
 #if LJ_HASFFI
   |  lwz CTSTATE, DISPATCH_GL(ctype_state)(DISPATCH)
   |   stw BASE, L->base
@@ -2619,7 +2643,6 @@ static void build_subroutines(BuildCtx *ctx)
   |  stwux sp, sp, TMP1
   |   crnot 4*cr1+eq, 4*cr1+eq		// For vararg calls.
   |  stw r14, -4(TMP2)
-  |   li TMP3, 0
   |  stw CCSTATE, -8(TMP2)
   |  mr r14, TMP2
   |  la TMP1, CCSTATE->stack
@@ -3840,14 +3863,6 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  barrierback TAB:RB, TMP3, TMP0
     |  b <2
     break;
-    |1:
-    |  checkstr CARG1; bne >4
-    |   cmpw TMP0, STR:RC; bne >4
-    |    checknil CARG2; beq >5		// Key found, but nil value?
-    |3:
-    |    stwux CARG2, RA, BASE
-    |     stw TMP1, 4(RA)
-    |  ins_next
   case BC_TSETS:
     |  // RA = src*8, RB = table*8, RC = str_const*8 (~)
     |  lwzux CARG1, RB, BASE
@@ -3874,7 +3889,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  lwz CARG1, NODE:TMP2->key
     |   lwz TMP0, 4+offsetof(Node, key)(NODE:TMP2)
     |    lwz CARG2, NODE:TMP2->val
-    |     lwz TMP1, 4+offsetof(Node, val)(NODE:TMP2)
+    |     lwz NODE:TMP1, NODE:TMP2->next
     |  checkstr CARG1; bne >5
     |   cmpw TMP0, STR:RC; bne >5
     |    checknil CARG2; beq >4		// Key found, but nil value?
@@ -3895,8 +3910,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  b ->vmeta_tsets
     |
     |5:  // Follow hash chain.
-    |  lwz NODE:TMP2, NODE:TMP2->next
-    |  cmplwi NODE:TMP2, 0
+    |  cmplwi NODE:TMP1, 0
+    |   mr NODE:TMP2, NODE:TMP1
     |  bne <1
     |  // End of hash chain: key not found, add a new one.
     |
@@ -4470,7 +4485,6 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
       }
       |   lfd f1, FORL_IDX*8(RA)
       |  crand 4*cr0+lt, 4*cr0+lt, 4*cr7+lt
-      |   lfd f3, FORL_STEP*8(RA)
       |  crand 4*cr0+lt, 4*cr0+lt, 4*cr1+lt
       |   lfd f2, FORL_STOP*8(RA)
       |  bge ->vmeta_for
@@ -4625,7 +4639,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     }
     |2:
     |  cmplw NARGS8:RC, TMP1		// Check for missing parameters.
-    |  ble >3
+    |  blt >3
     if (op == BC_JFUNCF) {
       |  decode_RD8 RD, INS
       |  b =>BC_JLOOP

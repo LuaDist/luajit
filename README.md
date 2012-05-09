@@ -1,4 +1,4 @@
-README for LuaJIT 2.0.0-beta9
+README for LuaJIT 2.0.0-beta10
 =============================
 
 [![Build Status](https://secure.travis-ci.org/LuaDist/luajit.png?branch=master)](http://travis-ci.org/LuaDist/luajit)
@@ -7,7 +7,7 @@ LuaJIT is a Just-In-Time (JIT) compiler for the Lua programming language.
 
 Project Homepage: http://luajit.org/
 
-LuaJIT is Copyright (C) 2005-2011 Mike Pall.
+LuaJIT is Copyright (C) 2005-2012 Mike Pall.
 LuaJIT is free software, released under the MIT license.
 See full Copyright Notice in the COPYRIGHT file or in luajit.h.
 

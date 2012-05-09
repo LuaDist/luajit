@@ -1,6 +1,6 @@
 /*
 ** ARM IR assembler (SSA IR -> machine code).
-** Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 */
 
 /* -- Register allocator extensions --------------------------------------- */
@@ -584,8 +584,8 @@ static void asm_href(ASMState *as, IRIns *ir, IROp merge)
   else
     emit_branch(as, ARMF_CC(ARMI_B, CC_EQ), l_end);
   if (!irt_ispri(kt)) {
-    emit_nm(as, ARMF_CC(ARMI_CMP, CC_EQ)^khi, tmp+1, keyhi);
-    emit_nm(as, ARMI_CMP^k, tmp, key);
+    emit_nm(as, ARMF_CC(ARMI_CMP, CC_EQ)^k, tmp, key);
+    emit_nm(as, ARMI_CMP^khi, tmp+1, keyhi);
     emit_lsox(as, ARMI_LDRD, tmp, dest, (int32_t)offsetof(Node, key));
   } else {
     emit_n(as, ARMI_CMP^khi, tmp);
@@ -656,7 +656,8 @@ static void asm_hrefk(ASMState *as, IRIns *ir)
   }
   asm_guardcc(as, CC_NE);
   if (!irt_ispri(irkey->t)) {
-    RegSet even = (as->freeset & (as->freeset >> 1) & allow & RSET_GPREVEN);
+    RegSet even = (as->freeset & allow);
+    even = even & (even >> 1) & RSET_GPREVEN;
     if (even) {
       key = ra_scratch(as, even);
       if (rset_test(as->freeset, key+1)) {
@@ -674,10 +675,9 @@ static void asm_hrefk(ASMState *as, IRIns *ir)
 	     (int32_t)ir_knum(irkey)->u32.hi, allow);
     emit_opk(as, ARMI_CMP, 0, key,
 	     (int32_t)ir_knum(irkey)->u32.lo, allow);
-  } else if (ra_hasreg(key)) {
-    emit_n(as, ARMF_CC(ARMI_CMN, CC_EQ)|ARMI_K12|-irt_toitype(irkey->t), type);
-    emit_opk(as, ARMI_CMP, 0, key, irkey->i, allow);
   } else {
+    if (ra_hasreg(key))
+      emit_opk(as, ARMF_CC(ARMI_CMP, CC_EQ), 0, key, irkey->i, allow);
     emit_n(as, ARMI_CMN|ARMI_K12|-irt_toitype(irkey->t), type);
   }
   emit_lso(as, ARMI_LDR, type, idx, kofs+4);
@@ -1017,8 +1017,8 @@ static void asm_obar(ASMState *as, IRIns *ir)
   args[0] = ASMREF_TMP1;  /* global_State *g */
   args[1] = ir->op1;      /* TValue *tv      */
   asm_gencall(as, ci, args);
-  if ((*as->mcp >> 28) == CC_AL)
-    *as->mcp = ARMF_CC(*as->mcp, CC_NE);
+  if ((l_end[-1] >> 28) == CC_AL)
+    l_end[-1] = ARMF_CC(l_end[-1], CC_NE);
   else
     emit_branch(as, ARMF_CC(ARMI_B, CC_EQ), l_end);
   ra_allockreg(as, i32ptr(J2G(as->J)), ra_releasetmp(as, ASMREF_TMP1));

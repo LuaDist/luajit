@@ -1,6 +1,6 @@
 /*
 ** Metamethod handling.
-** Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 **
 ** Portions taken verbatim or adapted from the Lua interpreter.
 ** Copyright (C) 1994-2008 Lua.org, PUC-Rio. See Copyright Notice in lua.h
@@ -240,6 +240,8 @@ static LJ_AINLINE int tostring(lua_State *L, TValue *o)
 /* Helper for CAT. Coercion, iterative concat, __concat metamethod. */
 TValue *lj_meta_cat(lua_State *L, TValue *top, int left)
 {
+  int fromc = 0;
+  if (left < 0) { left = -left; fromc = 1; }
   do {
     int n = 1;
     if (!(tvisstr(top-1) || tvisnumber(top-1)) || !tostring(L, top)) {
@@ -300,7 +302,10 @@ TValue *lj_meta_cat(lua_State *L, TValue *top, int left)
     left -= n;
     top -= n;
   } while (left >= 1);
-  lj_gc_check_fixtop(L);
+  if (LJ_UNLIKELY(G(L)->gc.total >= G(L)->gc.threshold)) {
+    if (!fromc) L->top = curr_topL(L);
+    lj_gc_step(L);
+  }
   return NULL;
 }
 

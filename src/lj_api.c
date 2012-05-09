@@ -1,6 +1,6 @@
 /*
 ** Public Lua/C API.
-** Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 **
 ** Major portions taken verbatim or adapted from the Lua interpreter.
 ** Copyright (C) 1994-2008 Lua.org, PUC-Rio. See Copyright Notice in lua.h
@@ -709,7 +709,7 @@ LUA_API void lua_concat(lua_State *L, int n)
   if (n >= 2) {
     n--;
     do {
-      TValue *top = lj_meta_cat(L, L->top-1, n);
+      TValue *top = lj_meta_cat(L, L->top-1, -n);
       if (top == NULL) {
 	L->top -= n;
 	break;

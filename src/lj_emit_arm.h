@@ -1,6 +1,6 @@
 /*
 ** ARM instruction emitter.
-** Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 */
 
 /* -- Constant encoding --------------------------------------------------- */
@@ -230,6 +230,8 @@ static void emit_branch(ASMState *as, ARMIns ai, MCode *target)
   *--p = ai | ((uint32_t)delta & 0x00ffffffu);
   as->mcp = p;
 }
+
+#define emit_jmp(as, target) emit_branch(as, ARMI_B, (target))
 
 static void emit_call(ASMState *as, void *target)
 {

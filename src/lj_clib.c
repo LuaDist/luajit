@@ -1,6 +1,6 @@
 /*
 ** FFI C library loader.
-** Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #include "lj_obj.h"
@@ -39,21 +39,38 @@ LJ_NORET LJ_NOINLINE static void clib_error_(lua_State *L)
 
 #define clib_error(L, fmt, name)	clib_error_(L)
 
+#if defined(__CYGWIN__)
+#define CLIB_SOPREFIX	"cyg"
+#else
+#define CLIB_SOPREFIX	"lib"
+#endif
+
 #if LJ_TARGET_OSX
 #define CLIB_SOEXT	"%s.dylib"
+#elif defined(__CYGWIN__)
+#define CLIB_SOEXT	"%s.dll"
 #else
 #define CLIB_SOEXT	"%s.so"
 #endif
 
 static const char *clib_extname(lua_State *L, const char *name)
 {
-  if (!strchr(name, '/')) {
+  if (!strchr(name, '/')
+#ifdef __CYGWIN__
+      && !strchr(name, '\\')
+#endif
+     ) {
     if (!strchr(name, '.')) {
       name = lj_str_pushf(L, CLIB_SOEXT, name);
       L->top--;
+#ifdef __CYGWIN__
+    } else {
+      return name;
+#endif
     }
-    if (!(name[0] == 'l' && name[1] == 'i' && name[2] == 'b')) {
-      name = lj_str_pushf(L, "lib%s", name);
+    if (!(name[0] == CLIB_SOPREFIX[0] && name[1] == CLIB_SOPREFIX[1] &&
+	  name[2] == CLIB_SOPREFIX[2])) {
+      name = lj_str_pushf(L, CLIB_SOPREFIX "%s", name);
       L->top--;
     }
   }
@@ -114,7 +131,7 @@ static void *clib_loadlib(lua_State *L, const char *name, int global)
 
 static void clib_unloadlib(CLibrary *cl)
 {
-  if (!cl->handle && cl->handle != CLIB_DEFHANDLE)
+  if (cl->handle && cl->handle != CLIB_DEFHANDLE)
     dlclose(cl->handle);
 }
 
@@ -211,7 +228,6 @@ static void clib_unloadlib(CLibrary *cl)
 static void *clib_getsym(CLibrary *cl, const char *name)
 {
   void *p = NULL;
-  DWORD oldwerr = GetLastError();
   if (cl->handle == CLIB_DEFHANDLE) {  /* Search default libraries. */
     MSize i;
     for (i = 0; i < CLIB_HANDLE_MAX; i++) {
@@ -240,7 +256,6 @@ static void *clib_getsym(CLibrary *cl, const char *name)
   } else {
     p = (void *)GetProcAddress((HINSTANCE)cl->handle, name);
   }
-  SetLastError(oldwerr);
   return p;
 }
 
@@ -284,9 +299,10 @@ static CTSize clib_func_argsize(CTState *cts, CType *ct)
   while (ct->sib) {
     CType *d;
     ct = ctype_get(cts, ct->sib);
-    lua_assert(ctype_isfield(ct->info));
-    d = ctype_rawchild(cts, ct);
-    n += ((d->size + 3) & ~3);
+    if (ctype_isfield(ct->info)) {
+      d = ctype_rawchild(cts, ct);
+      n += ((d->size + 3) & ~3);
+    }
   }
   return n;
 }
@@ -322,6 +338,9 @@ TValue *lj_clib_index(lua_State *L, CLibrary *cl, GCstr *name)
 	setintV(tv, (int32_t)ct->size);
     } else {
       const char *sym = clib_extsym(cts, ct, name);
+#if LJ_TARGET_WINDOWS
+      DWORD oldwerr = GetLastError();
+#endif
       void *p = clib_getsym(cl, sym);
       GCcdata *cd;
       lua_assert(ctype_isfunc(ct->info) || ctype_isextern(ct->info));
@@ -331,15 +350,19 @@ TValue *lj_clib_index(lua_State *L, CLibrary *cl, GCstr *name)
 	CTInfo cconv = ctype_cconv(ct->info);
 	if (cconv == CTCC_FASTCALL || cconv == CTCC_STDCALL) {
 	  CTSize sz = clib_func_argsize(cts, ct);
-	  sym = lj_str_pushf(L, cconv == CTCC_FASTCALL ? "@%s@%d" : "_%s@%d",
-			     sym, sz);
+	  const char *symd = lj_str_pushf(L,
+			       cconv == CTCC_FASTCALL ? "@%s@%d" : "_%s@%d",
+			       sym, sz);
 	  L->top--;
-	  p = clib_getsym(cl, sym);
+	  p = clib_getsym(cl, symd);
 	}
       }
 #endif
       if (!p)
-	clib_error(L, "cannot resolve symbol " LUA_QS ": %s", strdata(name));
+	clib_error(L, "cannot resolve symbol " LUA_QS ": %s", sym);
+#if LJ_TARGET_WINDOWS
+      SetLastError(oldwerr);
+#endif
       cd = lj_cdata_new(cts, id, CTSIZE_PTR);
       *(void **)cdataptr(cd) = p;
       setcdataV(L, tv, cd);

@@ -1,6 +1,6 @@
 /*
 ** VM error messages.
-** Copyright (C) 2005-2011 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
 */
 
 /* This file may be included multiple times with different ERRDEF macros. */
@@ -139,6 +139,7 @@ ERRDEF(XFOR,	LUA_QL("=") " or " LUA_QL("in") " expected")
 /* Bytecode reader errors. */
 ERRDEF(BCFMT,	"cannot load incompatible bytecode")
 ERRDEF(BCBAD,	"cannot load malformed bytecode")
+ERRDEF(BCHEAD,	"attempt to load bytecode with extra header")
 
 #if LJ_HASFFI
 /* FFI errors. */
