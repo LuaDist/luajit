@@ -6,7 +6,8 @@
 
 project ( luajit C ASM)
 cmake_minimum_required ( VERSION 2.6 )
-include ( dist.cmake )
+include ( cmake/dist.cmake )
+include ( lua )
 
 ## CONFIGURATION
 # Default configuration (we assume POSIX by default)
