@@ -1,8 +1,8 @@
 0  ICON  "..\\etc\\luajit.ico"
 
 1 VERSIONINFO
- FILEVERSION 1,1,6,0
- PRODUCTVERSION 1,1,6,0
+ FILEVERSION 1,1,8,0
+ PRODUCTVERSION 1,1,8,0
 BEGIN
     BLOCK "StringFileInfo"
     BEGIN
@@ -10,13 +10,13 @@ BEGIN
         BEGIN
             VALUE "Comments", "www.luajit.org\0"
             VALUE "CompanyName", "luajit.org\0"
-            VALUE "FileDescription", "LuaJIT, JIT copmiler for the LuaLanguage\0"
-            VALUE "FileVersion", "1.1.6\0"
+            VALUE "FileDescription", "LuaJIT is a JIT copmiler for the Lua language\0"
+            VALUE "FileVersion", "1.1.8\0"
             VALUE "LegalCopyright", "Copyright © Mike Pall.\0"
             VALUE "OriginalFilename", "luajit.exe\0"
-            VALUE "ProductName", "LuaJIT, JIT copmiler for the LuaLanguage\0"
-            VALUE "ProductVersion", "1.1.6\0"
-            VALUE "PrivateBuild", "Built for LuaDist\0"
+            VALUE "ProductName", "LuaJIT\0"
+            VALUE "ProductVersion", "1.1.8\0"
+            VALUE "PrivateBuild", "Built using LuaDist\0"
         END
     END
 END

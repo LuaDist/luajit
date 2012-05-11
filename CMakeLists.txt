@@ -6,7 +6,8 @@
 
 project ( luajit C )
 cmake_minimum_required ( VERSION 2.6 )
-include ( dist.cmake )
+include ( cmake/dist.cmake )
+include ( lua )
 
 ## CONFIGURATION
 # Default configuration (we assume POSIX by default)
@@ -82,7 +83,6 @@ if ( LUA_WIN )
   # Add extra rc files to the windows build
   if ( MSVC OR MINGW )
     set ( LUA_DEF src/lua.def )
-    set ( LUA_DLL_RC src/lua_dll.rc )
     set ( LUA_RC src/lua.rc )
     set ( LUAC_RC src/luac.rc )
   endif ()
@@ -121,7 +121,7 @@ endif ()
 
 ## BUILD
 # Create dynamic library
-add_library ( liblua SHARED ${SRC_LIB} ${LUA_DLL_RC} ${LUA_DEF} )
+add_library ( liblua SHARED ${SRC_LIB} ${LUA_DEF} )
 target_link_libraries ( liblua ${LIBS} )
 set_target_properties ( liblua PROPERTIES OUTPUT_NAME lua CLEAN_DIRECT_OUTPUT 1 )
 
