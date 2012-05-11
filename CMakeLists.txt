@@ -93,16 +93,6 @@ if ( LUA_USE_DLOPEN )
   list ( APPEND LIBS dl )
 endif ()
 
-if ( LUA_WIN )
-  # Add extra rc files to the windows build
-  if ( MSVC OR MINGW )
-    set ( LUA_DEF src/lua.def )
-    set ( LUA_DLL_RC src/lua_dll.rc )
-    set ( LUA_RC src/lua.rc )
-    set ( LUAC_RC src/luac.rc )
-  endif ()
-endif ()
-
 if ( LUA_USE_READLINE )
   # Add readline
   include_directories ( ${READLINE_INCLUDE_DIR} )
@@ -204,16 +194,16 @@ SET(DEPS
                   
 ## COMPILE
 include_directories ( ${CMAKE_CURRENT_BINARY_DIR} dynasm src )
-add_library ( liblua SHARED ${SRC_JIT} ${SRC_LIB} src/lua_dll.rc ${DEPS} ) #old: src/lua.def
+add_library ( liblua SHARED ${SRC_JIT} ${SRC_LIB} ${DEPS} )
 target_link_libraries ( liblua ${LIBS} )
 set_target_properties ( liblua PROPERTIES OUTPUT_NAME lua CLEAN_DIRECT_OUTPUT 1 )
 
-add_executable ( lua src/luajit.c src/lua.rc )
+add_executable ( lua src/luajit.c src/luajit.rc )
 target_link_libraries ( lua liblua )
 
 # On windows a variant of the lua interpreter without console output needs to be built
 if(LUA_BUILD_WLUA)
-  add_executable ( wlua WIN32 src/luajit.c src/lua.rc )
+  add_executable ( wlua WIN32 src/luajit.c src/luajit.rc )
   target_link_libraries ( wlua liblua )  
   install_executable ( wlua )
 endif()
