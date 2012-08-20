@@ -5,7 +5,7 @@
 # Please note that the package source code is licensed under its own license.
 
 project ( luajit C )
-cmake_minimum_required ( VERSION 2.6 )
+cmake_minimum_required ( VERSION 2.8 )
 include ( cmake/dist.cmake )
 include ( lua )
 
@@ -16,11 +16,12 @@ set ( LUA_CPATH "LUA_CPATH" CACHE STRING "Environment variable to use as package
 set ( LUA_INIT "LUA_INIT" CACHE STRING "Environment variable for initial script." )
 
 option ( LUA_ANSI "Use only ansi features." OFF )
-option ( LUA_USE_RELATIVE_LOADLIB "Use modified loadlib.c with support for relative paths on posix systems." ON)
+option ( LUA_USE_RELATIVE_LOADLIB "Use modified loadlib.c with support for relative paths on posix systems." 
+  ON )
 set ( LUA_IDSIZE 60 CACHE NUMBER "gives the maximum size for the description of the source." )
 set ( LUA_PROMPT "> " CACHE STRING "Is the default prompt used by stand-alone Lua." )
 set ( LUA_PROMPT2 ">> " CACHE STRING "Is the default continuation prompt used by stand-alone Lua." )
-set ( LUA_MAXINPUT 512 CACHE NUMBER "Is the maximum length for an input line in the stand-alone interpreter.")
+set ( LUA_MAXINPUT 512 CACHE NUMBER "Is the maximum length for an input line in the stand-alone interpreter." )
 
 #2DO: LUAI_* and LUAL_* settings, for now defaults are used.
 
@@ -32,52 +33,51 @@ set ( LUA_CDIR ${INSTALL_CMOD} )
 if ( LUA_USE_RELATIVE_LOADLIB )
   # This will set up relative paths to lib
   string ( REGEX REPLACE "[^!/]+" ".." LUA_ROOT "!/${INSTALL_BIN}/" )
-else ()
+else ( )
   # Direct path to installation
-  set ( LUA_ROOT ${CMAKE_INSTALL_PREFIX} CACHE STRING "Destination from which modules will be resolved. See INSTALL_LMOD and INSTALL_CMOD.")
-endif ()
+  set ( LUA_ROOT ${CMAKE_INSTALL_PREFIX} CACHE STRING "Destination from which modules will be resolved. See INSTALL_LMOD and INSTALL_CMOD." )
+endif ( )
 
 if ( WIN32 AND NOT CYGWIN )
   # Windows systems
   option ( LUA_WIN "Windows specific build." ON )
   option ( LUA_BUILD_AS_DLL "Build Lua library as Dll." ON )
   # Paths (Double escapes needed)
-  set ( LUA_DIRSEP "\\\\" )
-  string ( REPLACE "/" ${LUA_DIRSEP} LUA_ROOT ${LUA_ROOT} )
+  set ( LUA_DIRSEP "\\\\" ) string ( REPLACE " /" ${LUA_DIRSEP} LUA_ROOT ${LUA_ROOT} )
   string ( REPLACE "/" ${LUA_DIRSEP} LUA_LDIR ${LUA_LDIR} )
   string ( REPLACE "/" ${LUA_DIRSEP} LUA_CDIR ${LUA_CDIR} )
-else ()
+else ( )
   # Posix systems (incl. Cygwin)
   option ( LUA_USE_POSIX "Use POSIX functionality." ON )
   option ( LUA_USE_DLOPEN "Use dynamic linker to load modules." ON )
   option ( LUA_USE_MKSTEMP "Use mkstep." ON )
   option ( LUA_USE_ISATTY "Use tty." ON )
   option ( LUA_USE_POPEN "Use popen." ON )
-  option ( LUA_USE_ULONGJMP "Use ulongjmp" ON)
-endif ()
+  option ( LUA_USE_ULONGJMP "Use ulongjmp" ON )
+endif ( )
 
 ## SETUP
 # Optional libraries
 find_package ( Readline )
 if ( READLINE_FOUND )
   option ( LUA_USE_READLINE "Use readline in the Lua CLI." ON )
-endif ()
+endif ( )
 
 find_package ( Curses )
 if ( CURSES_FOUND )
   option ( LUA_USE_CURSES "Use curses in the Lua CLI." ON )
-endif ()
+endif ( )
 
 # Setup needed variables and libraries
 if ( LUA_USE_POSIX )
   # On POSIX Lua links to standard math library "m"
   list ( APPEND LIBS m )
-endif ()
+endif ( )
 
 if ( LUA_USE_DLOPEN )
   # Link to dynamic linker library "dl"
   list ( APPEND LIBS dl )
-endif ()
+endif ( )
 
 if ( LUA_WIN )
   # Add extra rc files to the windows build
@@ -85,20 +85,20 @@ if ( LUA_WIN )
     set ( LUA_DEF src/lua.def )
     set ( LUA_RC src/lua.rc )
     set ( LUAC_RC src/luac.rc )
-  endif ()
-endif ()
+  endif ( )
+endif ( )
 
 if ( LUA_USE_READLINE )
   # Add readline
   include_directories ( ${READLINE_INCLUDE_DIR} )
   list ( APPEND LIBS ${READLINE_LIBRARY} )
-endif ()
+endif ( )
 
 if ( LUA_USE_CURSES )
   # Add curses
   include_directories ( ${CURSES_INCLUDE_DIR} )
   list ( APPEND LIBS ${CURSES_LIBRARY} )
-endif ()
+endif ( )
 
 ## SOURCES
 # Generate luaconf.h
@@ -108,20 +108,24 @@ configure_file ( src/luaconf.h.in ${CMAKE_CURRENT_BINARY_DIR}/luaconf.h )
 include_directories ( src dynasm ${CMAKE_CURRENT_BINARY_DIR} )
 set ( SRC_COCO src/lcoco.c )
 set ( SRC_JIT src/ljit_core.c src/ljit_mem.c src/ljit_dasm.c src/ljit_backend.c )
-set ( SRC_LIB src/lauxlib.c src/lbaselib.c src/ldblib.c src/liolib.c src/lmathlib.c src/loslib.c src/ltablib.c src/lstrlib.c src/linit.c src/ljitlib.c src/lapi.c src/lcode.c src/ldebug.c src/ldo.c src/ldump.c src/lfunc.c src/lgc.c src/llex.c src/lmem.c src/lobject.c src/lopcodes.c src/lparser.c src/lstate.c src/lstring.c src/ltable.c src/ltm.c src/lundump.c src/lvm.c src/lzio.c ${SRC_COCO} ${SRC_JIT} )
+set ( SRC_LIB src/lauxlib.c src/lbaselib.c src/ldblib.c src/liolib.c src/lmathlib.c 
+  src/loslib.c src/ltablib.c src/lstrlib.c src/linit.c src/ljitlib.c src/lapi.c src/lcode.c 
+  src/ldebug.c src/ldo.c src/ldump.c src/lfunc.c src/lgc.c src/llex.c src/lmem.c 
+  src/lobject.c src/lopcodes.c src/lparser.c src/lstate.c src/lstring.c src/ltable.c 
+  src/ltm.c src/lundump.c src/lvm.c src/lzio.c ${SRC_COCO} ${SRC_JIT} )
 set ( SRC_LUA src/lua.c )
 set ( SRC_LUAC src/luac.c src/print.c )
 
 if ( LUA_USE_RELATIVE_LOADLIB )
   # Use modified loadlib
   list ( APPEND SRC_LIB src/loadlib_rel.c )
-else ()
+else ( )
   list ( APPEND SRC_LIB src/loadlib.c )
-endif ()
+endif ( )
 
 ## BUILD
 # Create dynamic library
-add_library ( liblua SHARED ${SRC_LIB} ${LUA_DEF} )
+add_library ( liblua ${SRC_LIB} ${LUA_DEF} )
 target_link_libraries ( liblua ${LIBS} )
 set_target_properties ( liblua PROPERTIES OUTPUT_NAME lua CLEAN_DIRECT_OUTPUT 1 )
 
@@ -140,6 +144,6 @@ install_executable ( lua luac )
 install_library ( liblua )
 install_data ( README.md COPYRIGHT )
 install_lua_module ( strict etc/strict.lua )
-install_header ( src/lua.h src/lualib.h src/lauxlib.h etc/lua.hpp ${CMAKE_CURRENT_BINARY_DIR}/luaconf.h  )
+install_header ( src/lua.h src/lualib.h src/lauxlib.h etc/lua.hpp ${CMAKE_CURRENT_BINARY_DIR}/luaconf.h )
 install_doc ( doc/ )
 install_foo ( etc/ )
