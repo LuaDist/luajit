@@ -67,7 +67,7 @@ elseif ( APPLE )
 else ()
   option ( LUA_USE_POSIX "Use POSIX functionality." ON )
   option ( LUA_USE_DLOPEN "Use dynamic linker to load modules." ON )
-  set ( LJVM_MODE elfasm )  
+  set ( LJVM_MODE elfasm )
 endif ()
 
 ## SETUP
@@ -147,7 +147,7 @@ if (LUAJIT_RUN_DYNASM)
     COMMAND ${DASM} -LN ${DASM_FLAGS_PPCSPE} -o ${CMAKE_CURRENT_BINARY_DIR}/buildvm_ppcspe.h ${CMAKE_CURRENT_SOURCE_DIR}/src/buildvm_ppc.dasc
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/dynasm/dynasm.lua
   )
-  
+
   # Note: not all of these are needed for the current platform, but for simplicity
   # specify all.
   set_source_files_properties(src/buildvm.c PROPERTIES OBJECT_DEPENDS
@@ -183,15 +183,15 @@ add_buildvm_target ( lj_folddef.h folddef src/lj_opt_fold.c )
 add_buildvm_target ( lj_recdef.h  recdef  ${SRC_LIB} )
 add_buildvm_target ( lj_libdef.h  libdef  ${SRC_LIB} )
 
-SET(DEPS 
+SET(DEPS
   ${LJ_VM_SRC}
   ${CMAKE_CURRENT_BINARY_DIR}/lj_ffdef.h
   ${CMAKE_CURRENT_BINARY_DIR}/lj_bcdef.h
   ${CMAKE_CURRENT_BINARY_DIR}/lj_libdef.h
   ${CMAKE_CURRENT_BINARY_DIR}/lj_recdef.h
-  ${CMAKE_CURRENT_BINARY_DIR}/lj_folddef.h 
+  ${CMAKE_CURRENT_BINARY_DIR}/lj_folddef.h
   )
-                  
+
 ## COMPILE
 include_directories ( ${CMAKE_CURRENT_BINARY_DIR} dynasm src )
 add_library ( liblua SHARED ${SRC_JIT} ${SRC_LIB} ${DEPS} )
@@ -204,14 +204,14 @@ target_link_libraries ( lua liblua )
 # On windows a variant of the lua interpreter without console output needs to be built
 if(LUA_BUILD_WLUA)
   add_executable ( wlua WIN32 src/luajit.c src/luajit.rc )
-  target_link_libraries ( wlua liblua )  
+  target_link_libraries ( wlua liblua )
   install_executable ( wlua )
 endif()
 
 ## INSTALL
 install_executable( lua )
 install_library( liblua )
-install_header( src/lua.h ${CMAKE_CURRENT_BINARY_DIR}/luaconf.h src/lualib.h src/lauxlib.h )
+install_header( src/lua.h src/luajit.h src/lua.hpp ${CMAKE_CURRENT_BINARY_DIR}/luaconf.h src/lualib.h src/lauxlib.h )
 
 install_lua_module ( strict etc/strict.lua )
 install_doc ( doc/ )
