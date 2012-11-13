@@ -26,6 +26,9 @@ local _s = string
 local sub, format, byte, char = _s.sub, _s.format, _s.byte, _s.char
 local match, gmatch = _s.match, _s.gmatch
 local concat, sort = table.concat, table.sort
+local bit = bit or require("bit")
+local band, shl, shr, sar = bit.band, bit.lshift, bit.rshift, bit.arshift
+local tohex = bit.tohex
 
 -- Inherited tables and callbacks.
 local g_opt, g_arch
@@ -59,11 +62,6 @@ local actargs = { 0 }
 local secpos = 1
 
 ------------------------------------------------------------------------------
-
--- Return 8 digit hex number.
-local function tohex(x)
-  return sub(format("%08x", x), -8) -- Avoid 64 bit portability problem in Lua.
-end
 
 -- Dump action names and numbers.
 local function dumpactions(out)
@@ -339,8 +337,9 @@ local map_op = {
   iselgt_3 =	"7c00005eRRR",
   iseleq_3 =	"7c00009eRRR",
   mfcr_1 =	"7c000026R",
+  mfocrf_2 =	"7c100026RG",
   mtcrf_2 =	"7c000120GR",
-  -- NYI: mtocrf, mfocrf
+  mtocrf_2 =	"7c100120GR",
   lwarx_3 =	"7c000028RR0R",
   ldx_3 =	"7c00002aRR0R",
   lwzx_3 =	"7c00002eRR0R",
@@ -467,6 +466,7 @@ local map_op = {
   sraw_3 =	"7c000630RR~R.",
   srad_3 =	"7c000634RR~R.",
   srawi_3 =	"7c000670RR~A.",
+  sradi_3 =	"7c000674RR~H.",
   eieio_0 =	"7c0006ac",
   lfiwax_3 =	"7c0006aeFR0R",
   sthbrx_3 =	"7c00072cRR0R",
@@ -480,6 +480,14 @@ local map_op = {
   divdo_3 =	"7c0007d2RRR.",
   divwo_3 =	"7c0007d6RRR.",
   dcbz_2 =	"7c0007ec-RR",
+
+  -- Primary opcode 30:
+  rldicl_4 =	"78000000RR~HM.",
+  rldicr_4 =	"78000004RR~HM.",
+  rldic_4 =	"78000008RR~HM.",
+  rldimi_4 =	"7800000cRR~HM.",
+  rldcl_4 =	"78000010RR~RM.",
+  rldcr_4 =	"78000012RR~RM.",
 
   -- Primary opcode 59:
   fdivs_3 =	"ec000024FFF.",
@@ -807,9 +815,7 @@ local map_op = {
   evmwlumianw_3 =	"100005c8RRR",
   evmwlsmianw_3 =	"100005c9RRR",
 
-  -- NYI: some 64 bit PowerPC and Book E instructions:
-  --   rldicl, rldicr, rldic, rldimi, rldcl, rldcr, sradi, 64 bit ext. add/sub,
-  --   extended addressing branches, cache management, loads and stores
+  -- NYI: Book E instructions.
 }
 
 -- Add mnemonics for "." variants.
@@ -829,7 +835,7 @@ end
 -- Add more branch mnemonics.
 for cond,c in pairs(map_cond) do
   local b1 = "b"..cond
-  local c1 = (c%4)*0x00010000 + (c < 4 and 0x01000000 or 0)
+  local c1 = shl(band(c, 3), 16) + (c < 4 and 0x01000000 or 0)
   -- bX[l]
   map_op[b1.."_1"] = tohex(0x40800000 + c1).."K"
   map_op[b1.."y_1"] = tohex(0x40a00000 + c1).."K"
@@ -897,16 +903,14 @@ end
 local function parse_imm(imm, bits, shift, scale, signed)
   local n = tonumber(imm)
   if n then
-    if n % 2^scale == 0 then
-      n = n / 2^scale
+    local m = sar(n, scale)
+    if shl(m, scale) == n then
       if signed then
-	if n >= 0 then
-	  if n < 2^(bits-1) then return n*2^shift end
-	else
-	  if n >= -(2^(bits-1))-1 then return (n+2^bits)*2^shift end
-	end
+	local s = sar(m, bits-1)
+	if s == 0 then return shl(m, shift)
+	elseif s == -1 then return shl(m + shl(1, bits), shift) end
       else
-	if n >= 0 and n <= 2^bits-1 then return n*2^shift end
+	if sar(m, bits) == 0 then return shl(m, shift) end
       end
     end
     werror("out of range immediate `"..imm.."'")
@@ -919,12 +923,29 @@ local function parse_imm(imm, bits, shift, scale, signed)
   end
 end
 
+local function parse_shiftmask(imm, isshift)
+  local n = tonumber(imm)
+  if n then
+    if shr(n, 6) == 0 then
+      local lsb = band(imm, 31)
+      local msb = imm - lsb
+      return isshift and (shl(lsb, 11)+shr(msb, 4)) or (shl(lsb, 6)+msb)
+    end
+    werror("out of range immediate `"..imm.."'")
+  elseif match(imm, "^r([1-3]?[0-9])$") or
+	 match(imm, "^([%w_]+):(r[1-3]?[0-9])$") then
+    werror("expected immediate operand, got register")
+  else
+    werror("NYI: parameterized 64 bit shift/mask")
+  end
+end
+
 local function parse_disp(disp)
   local imm, reg = match(disp, "^(.*)%(([%w_:]+)%)$")
   if imm then
     local r = parse_gpr(reg)
     if r == 0 then werror("cannot use r0 in displacement") end
-    return r*65536 + parse_imm(imm, 16, 0, 0, true)
+    return shl(r, 16) + parse_imm(imm, 16, 0, 0, true)
   end
   local reg, tailr = match(disp, "^([%w_:]+)%s*(.*)$")
   if reg and tailr ~= "" then
@@ -932,7 +953,7 @@ local function parse_disp(disp)
     if r == 0 then werror("cannot use r0 in displacement") end
     if tp then
       waction("IMM", 32768+16*32, format(tp.ctypefmt, tailr))
-      return r*65536
+      return shl(r, 16)
     end
   end
   werror("bad displacement `"..disp.."'")
@@ -943,7 +964,7 @@ local function parse_u5disp(disp, scale)
   if imm then
     local r = parse_gpr(reg)
     if r == 0 then werror("cannot use r0 in displacement") end
-    return r*65536 + parse_imm(imm, 5, 11, scale, false)
+    return shl(r, 16) + parse_imm(imm, 5, 11, scale, false)
   end
   local reg, tailr = match(disp, "^([%w_:]+)%s*(.*)$")
   if reg and tailr ~= "" then
@@ -951,7 +972,7 @@ local function parse_u5disp(disp, scale)
     if r == 0 then werror("cannot use r0 in displacement") end
     if tp then
       waction("IMM", scale*1024+5*32+11, format(tp.ctypefmt, tailr))
-      return r*65536
+      return shl(r, 16)
     end
   end
   werror("bad displacement `"..disp.."'")
@@ -1003,9 +1024,9 @@ map_op[".template__"] = function(params, template, nparams)
   -- Process each character.
   for p in gmatch(sub(template, 9), ".") do
     if p == "R" then
-      rs = rs - 5; op = op + parse_gpr(params[n]) * 2^rs; n = n + 1
+      rs = rs - 5; op = op + shl(parse_gpr(params[n]), rs); n = n + 1
     elseif p == "F" then
-      rs = rs - 5; op = op + parse_fpr(params[n]) * 2^rs; n = n + 1
+      rs = rs - 5; op = op + shl(parse_fpr(params[n]), rs); n = n + 1
     elseif p == "A" then
       rs = rs - 5; op = op + parse_imm(params[n], 5, rs, 0, false); n = n + 1
     elseif p == "S" then
@@ -1023,35 +1044,33 @@ map_op[".template__"] = function(params, template, nparams)
     elseif p == "8" then
       op = op + parse_u5disp(params[n], 3); n = n + 1
     elseif p == "C" then
-      rs = rs - 5; op = op + parse_cond(params[n]) * 2^rs; n = n + 1
+      rs = rs - 5; op = op + shl(parse_cond(params[n]), rs); n = n + 1
     elseif p == "X" then
-      rs = rs - 5; op = op + parse_cr(params[n]) * 2^(rs+2); n = n + 1
+      rs = rs - 5; op = op + shl(parse_cr(params[n]), rs+2); n = n + 1
     elseif p == "W" then
       op = op + parse_cr(params[n]); n = n + 1
     elseif p == "G" then
       op = op + parse_imm(params[n], 8, 12, 0, false); n = n + 1
+    elseif p == "H" then
+      op = op + parse_shiftmask(params[n], true); n = n + 1
+    elseif p == "M" then
+      op = op + parse_shiftmask(params[n], false); n = n + 1
     elseif p == "J" or p == "K" then
       local mode, n, s = parse_label(params[n], false)
       if p == "K" then n = n + 2048 end
       waction("REL_"..mode, n, s, 1)
       n = n + 1
     elseif p == "0" then
-      local mm = 2^rs
-      local t = op % mm
-      if ((op - t) / mm) % 32 == 0 then werror("cannot use r0") end
+      if band(shr(op, rs), 31) == 0 then werror("cannot use r0") end
     elseif p == "=" or p == "%" then
-      local mm = 2^(rs + (p == "%" and 5 or 0))
-      local t = ((op - op % mm) / mm) % 32
+      local t = band(shr(op, p == "%" and rs+5 or rs), 31)
       rs = rs - 5
-      op = op + t * 2^rs
+      op = op + shl(t, rs)
     elseif p == "~" then
-      local mm = 2^rs
-      local t1l = op % mm
-      local t1h = (op - t1l) / mm
-      local t2l = t1h % 32
-      local t2h = (t1h - t2l) / 32
-      local t3l = t2h % 32
-      op = ((t2h - t3l + t2l)*32 + t3l)*mm + t1l
+      local mm = shl(31, rs)
+      local lo = band(op, mm)
+      local hi = band(op, shl(mm, 5))
+      op = op - lo - hi + shl(lo, 5) + shr(hi, 5)
     elseif p == "-" then
       rs = rs - 5
     elseif p == "." then

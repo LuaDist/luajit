@@ -168,6 +168,8 @@
 #elif LJ_TARGET_ARM
 /* -- ARM calling conventions --------------------------------------------- */
 
+#if LJ_ABI_SOFTFP
+
 #define CCALL_HANDLE_STRUCTRET \
   /* Return structs of size <= 4 in a GPR. */ \
   cc->retref = !(sz <= 4); \
@@ -186,13 +188,70 @@
 #define CCALL_HANDLE_COMPLEXARG \
   /* Pass complex by value in 2 or 4 GPRs. */
 
-/* ARM has a softfp ABI. */
+#define CCALL_HANDLE_REGARG_FP1
+#define CCALL_HANDLE_REGARG_FP2
+
+#else
+
+#define CCALL_HANDLE_STRUCTRET \
+  cc->retref = !ccall_classify_struct(cts, ctr, ct); \
+  if (cc->retref) cc->gpr[ngpr++] = (GPRArg)dp;
+
+#define CCALL_HANDLE_STRUCTRET2 \
+  if (ccall_classify_struct(cts, ctr, ct) > 1) sp = (uint8_t *)&cc->fpr[0]; \
+  memcpy(dp, sp, ctr->size);
+
+#define CCALL_HANDLE_COMPLEXRET \
+  if (!(ct->info & CTF_VARARG)) cc->retref = 0;  /* Return complex in FPRs. */
+
+#define CCALL_HANDLE_COMPLEXRET2 \
+  if (!(ct->info & CTF_VARARG)) memcpy(dp, &cc->fpr[0], ctr->size);
+
+#define CCALL_HANDLE_STRUCTARG \
+  isfp = (ccall_classify_struct(cts, d, ct) > 1);
+  /* Pass all structs by value in registers and/or on the stack. */
+
+#define CCALL_HANDLE_COMPLEXARG \
+  isfp = 1;  /* Pass complex by value in FPRs or on stack. */
+
+#define CCALL_HANDLE_REGARG_FP1 \
+  if (isfp && !(ct->info & CTF_VARARG)) { \
+    if ((d->info & CTF_ALIGN) > CTALIGN_PTR) { \
+      if (nfpr + (n >> 1) <= CCALL_NARG_FPR) { \
+	dp = &cc->fpr[nfpr]; \
+	nfpr += (n >> 1); \
+	goto done; \
+      } \
+    } else { \
+      if (sz > 1 && fprodd != nfpr) fprodd = 0; \
+      if (fprodd) { \
+	if (2*nfpr+n <= 2*CCALL_NARG_FPR+1) { \
+	  dp = (void *)&cc->fpr[fprodd-1].f[1]; \
+	  nfpr += (n >> 1); \
+	  if ((n & 1)) fprodd = 0; else fprodd = nfpr-1; \
+	  goto done; \
+	} \
+      } else { \
+	if (2*nfpr+n <= 2*CCALL_NARG_FPR) { \
+	  dp = (void *)&cc->fpr[nfpr]; \
+	  nfpr += (n >> 1); \
+	  if ((n & 1)) fprodd = ++nfpr; else fprodd = 0; \
+	  goto done; \
+	} \
+      } \
+    } \
+    fprodd = 0;  /* No reordering after the first FP value is on stack. */ \
+  } else {
+
+#define CCALL_HANDLE_REGARG_FP2	}
+
+#endif
+
 #define CCALL_HANDLE_REGARG \
+  CCALL_HANDLE_REGARG_FP1 \
   if ((d->info & CTF_ALIGN) > CTALIGN_PTR) { \
     if (ngpr < maxgpr) \
       ngpr = (ngpr + 1u) & ~1u;  /* Align to regpair. */ \
-    else \
-      nsp = (nsp + 1u) & ~1u;  /* Align argument on stack. */ \
   } \
   if (ngpr < maxgpr) { \
     dp = &cc->gpr[ngpr]; \
@@ -204,7 +263,10 @@
       ngpr += n; \
     } \
     goto done; \
-  }
+  } CCALL_HANDLE_REGARG_FP2
+
+#define CCALL_HANDLE_RET \
+  if ((ct->info & CTF_VARARG)) sp = (uint8_t *)&cc->gpr[0];
 
 #elif LJ_TARGET_PPC
 /* -- PPC calling conventions --------------------------------------------- */
@@ -453,6 +515,49 @@ static void ccall_struct_ret(CCallState *cc, int *rcl, uint8_t *dp, CTSize sz)
 }
 #endif
 
+/* -- ARM hard-float ABI struct classification ---------------------------- */
+
+#if LJ_TARGET_ARM && !LJ_ABI_SOFTFP
+
+/* Classify a struct based on its fields. */
+static unsigned int ccall_classify_struct(CTState *cts, CType *ct, CType *ctf)
+{
+  CTSize sz = ct->size;
+  unsigned int r = 0, n = 0, isu = (ct->info & CTF_UNION);
+  if ((ctf->info & CTF_VARARG)) goto noth;
+  while (ct->sib) {
+    ct = ctype_get(cts, ct->sib);
+    if (ctype_isfield(ct->info)) {
+      CType *sct = ctype_rawchild(cts, ct);
+      if (ctype_isfp(sct->info)) {
+	r |= sct->size;
+	if (!isu) n++; else if (n == 0) n = 1;
+      } else if (ctype_iscomplex(sct->info)) {
+	r |= (sct->size >> 1);
+	if (!isu) n += 2; else if (n < 2) n = 2;
+      } else {
+	goto noth;
+      }
+    } else if (ctype_isbitfield(ct->info)) {
+      goto noth;
+    } else if (ctype_isxattrib(ct->info, CTA_SUBTYPE)) {
+      CType *sct = ctype_child(cts, ct);
+      if (sct->size > 0) {
+	unsigned int s = ccall_classify_struct(cts, sct, ctf);
+	if (s <= 1) goto noth;
+	r |= (s & 255);
+	if (!isu) n += (s >> 8); else if (n < (s >>8)) n = (s >> 8);
+      }
+    }
+  }
+  if ((r == 4 || r == 8) && n <= 4)
+    return r + (n << 8);
+noth:  /* Not a homogeneous float/double aggregate. */
+  return (sz <= 4);  /* Return structs of size <= 4 in a GPR. */
+}
+
+#endif
+
 /* -- Common C call handling ---------------------------------------------- */
 
 /* Infer the destination CTypeID for a vararg argument. */
@@ -461,7 +566,7 @@ CTypeID lj_ccall_ctid_vararg(CTState *cts, cTValue *o)
   if (tvisnumber(o)) {
     return CTID_DOUBLE;
   } else if (tviscdata(o)) {
-    CTypeID id = cdataV(o)->typeid;
+    CTypeID id = cdataV(o)->ctypeid;
     CType *s = ctype_get(cts, id);
     if (ctype_isrefarray(s->info)) {
       return lj_ctype_intern(cts,
@@ -494,6 +599,9 @@ static int ccall_set_args(lua_State *L, CTState *cts, CType *ct,
   MSize maxgpr, ngpr = 0, nsp = 0, narg;
 #if CCALL_NARG_FPR
   MSize nfpr = 0;
+#if LJ_TARGET_ARM
+  MSize fprodd = 0;
+#endif
 #endif
 
   /* Clear unused regs to get some determinism in case of misdeclaration. */
@@ -684,7 +792,6 @@ static int ccall_get_results(lua_State *L, CTState *cts, CType *ct,
 #endif
   /* No reference types end up here, so there's no need for the CTypeID. */
   lua_assert(!(ctype_isrefarray(ctr->info) || ctype_isstruct(ctr->info)));
-  if (ctype_isenum(ctr->info)) ctr = ctype_child(cts, ctr);
   return lj_cconv_tv_ct(cts, ctr, 0, L->top-1, sp);
 }
 
@@ -692,7 +799,7 @@ static int ccall_get_results(lua_State *L, CTState *cts, CType *ct,
 int lj_ccall_func(lua_State *L, GCcdata *cd)
 {
   CTState *cts = ctype_cts(L);
-  CType *ct = ctype_raw(cts, cd->typeid);
+  CType *ct = ctype_raw(cts, cd->ctypeid);
   CTSize sz = CTSIZE_PTR;
   if (ctype_isptr(ct->info)) {
     sz = ct->size;
@@ -703,6 +810,7 @@ int lj_ccall_func(lua_State *L, GCcdata *cd)
     int gcsteps, ret;
     cc.func = (void (*)(void))cdata_getptr(cdataptr(cd), sz);
     gcsteps = ccall_set_args(L, cts, ct, &cc);
+    ct = (CType *)((intptr_t)ct-(intptr_t)cts->tab);
     cts->cb.slot = ~0u;
     lj_vm_ffi_call(&cc);
     if (cts->cb.slot != ~0u) {  /* Blacklist function that called a callback. */
@@ -710,6 +818,7 @@ int lj_ccall_func(lua_State *L, GCcdata *cd)
       setlightudV(&tv, (void *)cc.func);
       setboolV(lj_tab_set(L, cts->miscmap, &tv), 1);
     }
+    ct = (CType *)((intptr_t)ct+(intptr_t)cts->tab);  /* May be reallocated. */
     gcsteps += ccall_get_results(L, cts, ct, &cc, &ret);
 #if LJ_TARGET_X86 && LJ_ABI_WIN
     /* Automatically detect __stdcall and fix up C function declaration. */

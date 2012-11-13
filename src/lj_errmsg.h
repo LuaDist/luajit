@@ -44,6 +44,7 @@ ERRDEF(BADVAL,	"invalid value")
 ERRDEF(NOVAL,	"value expected")
 ERRDEF(NOCORO,	"coroutine expected")
 ERRDEF(NOTABN,	"nil or table expected")
+ERRDEF(NOLFUNC,	"Lua function expected")
 ERRDEF(NOFUNCL,	"function or level expected")
 ERRDEF(NOSFT,	"string/function/table expected")
 ERRDEF(NOPROXY,	"boolean or proxy expected")
@@ -91,6 +92,7 @@ ERRDEF(STRPATC,	"invalid pattern capture")
 ERRDEF(STRPATE,	"malformed pattern (ends with " LUA_QL("%") ")")
 ERRDEF(STRPATM,	"malformed pattern (missing " LUA_QL("]") ")")
 ERRDEF(STRPATU,	"unbalanced pattern")
+ERRDEF(STRPATX,	"pattern too complex")
 ERRDEF(STRCAPI,	"invalid capture index")
 ERRDEF(STRCAPN,	"too many captures")
 ERRDEF(STRCAPU,	"unfinished capture")
@@ -100,7 +102,11 @@ ERRDEF(STRFMTW,	"invalid format (width or precision too long)")
 ERRDEF(STRGSRV,	"invalid replacement value (a %s)")
 ERRDEF(BADMODN,	"name conflict for module " LUA_QS)
 #if LJ_HASJIT
+#if LJ_TARGET_X86ORX64
 ERRDEF(NOJIT,	"JIT compiler disabled, CPU does not support SSE2")
+#else
+ERRDEF(NOJIT,	"JIT compiler disabled")
+#endif
 #elif defined(LJ_ARCH_NOJIT)
 ERRDEF(NOJIT,	"no JIT compiler for this architecture (yet)")
 #else
@@ -109,6 +115,7 @@ ERRDEF(NOJIT,	"JIT compiler permanently disabled by build option")
 ERRDEF(JITOPT,	"unknown or malformed optimization flag " LUA_QS)
 
 /* Lexer/parser errors. */
+ERRDEF(XMODE,	"attempt to load chunk with wrong mode")
 ERRDEF(XNEAR,	"%s near " LUA_QS)
 ERRDEF(XELEM,	"lexical element too long")
 ERRDEF(XLINES,	"chunk has too many lines")
@@ -128,18 +135,22 @@ ERRDEF(XLIMF,	"function at line %d has more than %d %s")
 ERRDEF(XMATCH,	LUA_QS " expected (to close " LUA_QS " at line %d)")
 ERRDEF(XFIXUP,	"function too long for return fixup")
 ERRDEF(XPARAM,	"<name> or " LUA_QL("...") " expected")
+#if !LJ_52
 ERRDEF(XAMBIG,	"ambiguous syntax (function call x new statement)")
+#endif
 ERRDEF(XFUNARG,	"function arguments expected")
 ERRDEF(XSYMBOL,	"unexpected symbol")
 ERRDEF(XDOTS,	"cannot use " LUA_QL("...") " outside a vararg function")
 ERRDEF(XSYNTAX,	"syntax error")
-ERRDEF(XBREAK,	"no loop to break")
 ERRDEF(XFOR,	LUA_QL("=") " or " LUA_QL("in") " expected")
+ERRDEF(XBREAK,	"no loop to break")
+ERRDEF(XLUNDEF,	"undefined label " LUA_QS)
+ERRDEF(XLDUP,	"duplicate label " LUA_QS)
+ERRDEF(XGSCOPE,	"<goto %s> jumps into the scope of local " LUA_QS)
 
 /* Bytecode reader errors. */
 ERRDEF(BCFMT,	"cannot load incompatible bytecode")
 ERRDEF(BCBAD,	"cannot load malformed bytecode")
-ERRDEF(BCHEAD,	"attempt to load bytecode with extra header")
 
 #if LJ_HASFFI
 /* FFI errors. */
@@ -149,6 +160,7 @@ ERRDEF(FFI_BADSCL,	"bad storage class")
 ERRDEF(FFI_DECLSPEC,	"declaration specifier expected")
 ERRDEF(FFI_BADTAG,	"undeclared or implicit tag " LUA_QS)
 ERRDEF(FFI_REDEF,	"attempt to redefine " LUA_QS)
+ERRDEF(FFI_NUMPARAM,	"wrong number of type parameters")
 ERRDEF(FFI_INITOV,	"too many initializers for " LUA_QS)
 ERRDEF(FFI_BADCONV,	"cannot convert " LUA_QS " to " LUA_QS)
 ERRDEF(FFI_BADLEN,	"attempt to get length of " LUA_QS)
@@ -159,10 +171,16 @@ ERRDEF(FFI_BADCALL,	LUA_QS " is not callable")
 ERRDEF(FFI_NUMARG,	"wrong number of arguments for function call")
 ERRDEF(FFI_BADMEMBER,	LUA_QS " has no member named " LUA_QS)
 ERRDEF(FFI_BADIDX,	LUA_QS " cannot be indexed")
+ERRDEF(FFI_BADIDXW,	LUA_QS " cannot be indexed with " LUA_QS)
+ERRDEF(FFI_BADMM,	LUA_QS " has no " LUA_QS " metamethod")
 ERRDEF(FFI_WRCONST,	"attempt to write to constant location")
 ERRDEF(FFI_NODECL,	"missing declaration for symbol " LUA_QS)
 ERRDEF(FFI_BADCBACK,	"bad callback")
+#if LJ_OS_NOJIT
+ERRDEF(FFI_CBACKOV,	"no support for callbacks on this OS")
+#else
 ERRDEF(FFI_CBACKOV,	"too many callbacks")
+#endif
 ERRDEF(FFI_NYIPACKBIT,	"NYI: packed bit fields")
 ERRDEF(FFI_NYICALL,	"NYI: cannot call this C function (yet)")
 #endif

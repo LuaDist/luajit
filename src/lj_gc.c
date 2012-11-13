@@ -35,7 +35,6 @@
 #define white2gray(x)		((x)->gch.marked &= (uint8_t)~LJ_GC_WHITES)
 #define gray2black(x)		((x)->gch.marked |= LJ_GC_BLACK)
 #define isfinalized(u)		((u)->marked & LJ_GC_FINALIZED)
-#define markfinalized(u)	((u)->marked |= LJ_GC_FINALIZED)
 
 /* -- Mark phase ---------------------------------------------------------- */
 
@@ -54,21 +53,22 @@
 /* Mark a white GCobj. */
 static void gc_mark(global_State *g, GCobj *o)
 {
+  int gct = o->gch.gct;
   lua_assert(iswhite(o) && !isdead(g, o));
   white2gray(o);
-  if (LJ_UNLIKELY(o->gch.gct == ~LJ_TUDATA)) {
+  if (LJ_UNLIKELY(gct == ~LJ_TUDATA)) {
     GCtab *mt = tabref(gco2ud(o)->metatable);
     gray2black(o);  /* Userdata are never gray. */
     if (mt) gc_markobj(g, mt);
     gc_markobj(g, tabref(gco2ud(o)->env));
-  } else if (LJ_UNLIKELY(o->gch.gct == ~LJ_TUPVAL)) {
+  } else if (LJ_UNLIKELY(gct == ~LJ_TUPVAL)) {
     GCupval *uv = gco2uv(o);
     gc_marktv(g, uvval(uv));
     if (uv->closed)
       gray2black(o);  /* Closed upvalues are never gray. */
-  } else if (o->gch.gct != ~LJ_TSTR && o->gch.gct != ~LJ_TCDATA) {
-    lua_assert(o->gch.gct == ~LJ_TFUNC || o->gch.gct == ~LJ_TTAB ||
-	       o->gch.gct == ~LJ_TTHREAD || o->gch.gct == ~LJ_TPROTO);
+  } else if (gct != ~LJ_TSTR && gct != ~LJ_TCDATA) {
+    lua_assert(gct == ~LJ_TFUNC || gct == ~LJ_TTAB ||
+	       gct == ~LJ_TTHREAD || gct == ~LJ_TPROTO);
     setgcrefr(o->gch.gclist, g->gc.gray);
     setgcref(g->gc.gray, o);
   }
@@ -121,7 +121,7 @@ static void gc_mark_mmudata(global_State *g)
   }
 }
 
-/* Separate userdata which which needs finalization to mmudata list. */
+/* Separate userdata objects to be finalized to mmudata list. */
 size_t lj_gc_separateudata(global_State *g, int all)
 {
   size_t m = 0;
@@ -131,11 +131,11 @@ size_t lj_gc_separateudata(global_State *g, int all)
     if (!(iswhite(o) || all) || isfinalized(gco2ud(o))) {
       p = &o->gch.nextgc;  /* Nothing to do. */
     } else if (!lj_meta_fastg(g, tabref(gco2ud(o)->metatable), MM_gc)) {
-      markfinalized(gco2ud(o));  /* Done, as there's no __gc metamethod. */
+      markfinalized(o);  /* Done, as there's no __gc metamethod. */
       p = &o->gch.nextgc;
     } else {  /* Otherwise move userdata to be finalized to mmudata list. */
       m += sizeudata(gco2ud(o));
-      markfinalized(gco2ud(o));
+      markfinalized(o);
       *p = o->gch.nextgc;
       if (gcref(g->gc.mmudata)) {  /* Link to end of mmudata list. */
 	GCobj *root = gcref(g->gc.mmudata);
@@ -298,25 +298,26 @@ static void gc_traverse_thread(global_State *g, lua_State *th)
 static size_t propagatemark(global_State *g)
 {
   GCobj *o = gcref(g->gc.gray);
+  int gct = o->gch.gct;
   lua_assert(isgray(o));
   gray2black(o);
   setgcrefr(g->gc.gray, o->gch.gclist);  /* Remove from gray list. */
-  if (LJ_LIKELY(o->gch.gct == ~LJ_TTAB)) {
+  if (LJ_LIKELY(gct == ~LJ_TTAB)) {
     GCtab *t = gco2tab(o);
     if (gc_traverse_tab(g, t) > 0)
       black2gray(o);  /* Keep weak tables gray. */
     return sizeof(GCtab) + sizeof(TValue) * t->asize +
 			   sizeof(Node) * (t->hmask + 1);
-  } else if (LJ_LIKELY(o->gch.gct == ~LJ_TFUNC)) {
+  } else if (LJ_LIKELY(gct == ~LJ_TFUNC)) {
     GCfunc *fn = gco2func(o);
     gc_traverse_func(g, fn);
     return isluafunc(fn) ? sizeLfunc((MSize)fn->l.nupvalues) :
 			   sizeCfunc((MSize)fn->c.nupvalues);
-  } else if (LJ_LIKELY(o->gch.gct == ~LJ_TPROTO)) {
+  } else if (LJ_LIKELY(gct == ~LJ_TPROTO)) {
     GCproto *pt = gco2pt(o);
     gc_traverse_proto(g, pt);
     return pt->sizept;
-  } else if (LJ_LIKELY(o->gch.gct == ~LJ_TTHREAD)) {
+  } else if (LJ_LIKELY(gct == ~LJ_TTHREAD)) {
     lua_State *th = gco2th(o);
     setgcrefr(th->gclist, g->gc.grayagain);
     setgcref(g->gc.grayagain, o);

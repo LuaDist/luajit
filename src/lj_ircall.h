@@ -66,7 +66,7 @@ typedef struct CCallInfo {
 #define IRCALLCOND_SOFTFP_FFI(x)	NULL
 #endif
 
-#define LJ_NEED_FP64			(LJ_TARGET_PPC || LJ_TARGET_MIPS)
+#define LJ_NEED_FP64	(LJ_TARGET_ARM || LJ_TARGET_PPC || LJ_TARGET_MIPS)
 
 #if LJ_HASFFI && (LJ_SOFTFP || LJ_NEED_FP64)
 #define IRCALLCOND_FP64_FFI(x)		x
@@ -102,7 +102,7 @@ typedef struct CCallInfo {
 #define IRCALLDEF(_) \
   _(ANY,	lj_str_cmp,		2,  FN, INT, CCI_NOFPRCLOBBER) \
   _(ANY,	lj_str_new,		3,   S, STR, CCI_L) \
-  _(ANY,	lj_str_tonum,		2,  FN, INT, 0) \
+  _(ANY,	lj_strscan_num,		2,  FN, INT, 0) \
   _(ANY,	lj_str_fromint,		2,  FN, STR, CCI_L) \
   _(ANY,	lj_str_fromnum,		2,  FN, STR, CCI_L) \
   _(ANY,	lj_tab_new1,		2,  FS, TAB, CCI_L) \
@@ -209,7 +209,7 @@ LJ_DATA const CCallInfo lj_ir_callinfo[IRCALL__MAX+1];
 #define fp64_ul2d __aeabi_ul2d
 #define fp64_l2f __aeabi_l2f
 #define fp64_ul2f __aeabi_ul2f
-#if LJ_TARGET_OSX
+#if LJ_TARGET_IOS
 #define fp64_d2l __fixdfdi
 #define fp64_d2ul __fixunsdfdi
 #define fp64_f2l __fixsfdi
@@ -242,7 +242,7 @@ extern uint32_t softfp_f2ui(float a);
 #endif
 #endif
 
-#if LJ_HASFFI && LJ_NEED_FP64
+#if LJ_HASFFI && LJ_NEED_FP64 && !(LJ_TARGET_ARM && LJ_SOFTFP)
 #ifdef __GNUC__
 #define fp64_l2d __floatdidf
 #define fp64_ul2d __floatundidf

@@ -21,6 +21,7 @@
 /* Some local macros to save typing. Undef'd at the end. */
 #define IR(ref)		(&J->cur.ir[(ref)])
 #define fins		(&J->fold.ins)
+#define fleft		(&J->fold.left)
 #define fright		(&J->fold.right)
 
 /*
@@ -181,7 +182,8 @@ static TRef fwd_ahload(jit_State *J, IRRef xref)
       lua_assert(ir->o != IR_TNEW || irt_isnil(fins->t));
       if (irt_ispri(fins->t)) {
 	return TREF_PRI(irt_type(fins->t));
-      } else if (irt_isnum(fins->t) || irt_isstr(fins->t)) {
+      } else if (irt_isnum(fins->t) || (LJ_DUALNUM && irt_isint(fins->t)) ||
+		 irt_isstr(fins->t)) {
 	TValue keyv;
 	cTValue *tv;
 	IRIns *key = IR(xr->op2);
@@ -191,6 +193,8 @@ static TRef fwd_ahload(jit_State *J, IRRef xref)
 	lua_assert(itype2irt(tv) == irt_type(fins->t));
 	if (irt_isnum(fins->t))
 	  return lj_ir_knum_u64(J, tv->u64);
+	else if (LJ_DUALNUM && irt_isint(fins->t))
+	  return lj_ir_kint(J, intV(tv));
 	else
 	  return lj_ir_kstr(J, strV(tv));
       }
@@ -250,6 +254,30 @@ TRef LJ_FASTCALL lj_opt_fwd_hload(jit_State *J)
   if (ref)
     return ref;
   return EMITFOLD;
+}
+
+/* HREFK forwarding. */
+TRef LJ_FASTCALL lj_opt_fwd_hrefk(jit_State *J)
+{
+  IRRef tab = fleft->op1;
+  IRRef ref = J->chain[IR_NEWREF];
+  while (ref > tab) {
+    IRIns *newref = IR(ref);
+    if (tab == newref->op1) {
+      if (fright->op1 == newref->op2)
+	return ref;  /* Forward from NEWREF. */
+      else
+	goto docse;
+    } else if (aa_table(J, tab, newref->op1) != ALIAS_NO) {
+      goto docse;
+    }
+    ref = newref->prev;
+  }
+  /* No conflicting NEWREF: key location unchanged for HREFK of TDUP. */
+  if (IR(tab)->o == IR_TDUP)
+    fins->t.irt &= ~IRT_GUARD;  /* Drop HREFK guard. */
+docse:
+  return CSEFOLD;
 }
 
 /* Check whether HREF of TNEW/TDUP can be folded to niltv. */
@@ -573,17 +601,8 @@ static AliasRet aa_xref(jit_State *J, IRIns *refa, IRIns *xa, IRIns *xb)
   ptrdiff_t ofsa = 0, ofsb = 0;
   IRIns *refb = IR(xb->op1);
   IRIns *basea = refa, *baseb = refb;
-  /* This implements (very) strict aliasing rules.
-  ** Different types do NOT alias, except for differences in signedness.
-  ** NYI: this also prevents type punning through unions.
-  */
-  if (irt_sametype(xa->t, xb->t)) {
-    if (refa == refb)
-      return ALIAS_MUST;  /* Shortcut for same refs with identical type. */
-  } else if (!(irt_typerange(xa->t, IRT_I8, IRT_U64) &&
-	       ((xa->t.irt - IRT_I8) ^ (xb->t.irt - IRT_I8)) == 1)) {
-    return ALIAS_NO;
-  }
+  if (refa == refb && irt_sametype(xa->t, xb->t))
+    return ALIAS_MUST;  /* Shortcut for same refs with identical type. */
   /* Offset-based disambiguation. */
   if (refa->o == IR_ADD && irref_isk(refa->op2)) {
     IRIns *irk = IR(refa->op2);
@@ -601,12 +620,25 @@ static AliasRet aa_xref(jit_State *J, IRIns *refa, IRIns *xa, IRIns *xb)
     if (refa == baseb && ofsb != 0)
       return ALIAS_NO;  /* base vs. base+-ofs. */
   }
+  /* This implements (very) strict aliasing rules.
+  ** Different types do NOT alias, except for differences in signedness.
+  ** Type punning through unions is allowed (but forces a reload).
+  */
   if (basea == baseb) {
-    /* This assumes strictly-typed, non-overlapping accesses. */
-    if (ofsa != ofsb)
-      return ALIAS_NO;  /* base+-o1 vs. base+-o2 and o1 != o2. */
-    return ALIAS_MUST;  /* Unsigned vs. signed access to the same address. */
+    ptrdiff_t sza = irt_size(xa->t), szb = irt_size(xb->t);
+    if (ofsa == ofsb) {
+      if (sza == szb && irt_isfp(xa->t) == irt_isfp(xb->t))
+	return ALIAS_MUST;  /* Same-sized, same-kind. May need to convert. */
+    } else if (ofsa + sza <= ofsb || ofsb + szb <= ofsa) {
+      return ALIAS_NO;  /* Non-overlapping base+-o1 vs. base+-o2. */
+    }
+    /* NYI: extract, extend or reinterpret bits (int <-> fp). */
+    return ALIAS_MAY;  /* Overlapping or type punning: force reload. */
   }
+  if (!irt_sametype(xa->t, xb->t) &&
+      !(irt_typerange(xa->t, IRT_I8, IRT_U64) &&
+	((xa->t.irt - IRT_I8) ^ (xb->t.irt - IRT_I8)) == 1))
+    return ALIAS_NO;
   /* NYI: structural disambiguation. */
   return aa_cnew(J, basea, baseb);  /* Try to disambiguate allocations. */
 }
@@ -702,7 +734,7 @@ retry:
 	if (st == IRT_I8 || st == IRT_I16) {  /* Trunc + sign-extend. */
 	  st |= IRCONV_SEXT;
 	} else if (st == IRT_U8 || st == IRT_U16) {  /* Trunc + zero-extend. */
-	} else if (st == IRT_INT && !irt_isint(IR(store->op2)->t)) {
+	} else if (st == IRT_INT) {
 	  st = irt_type(IR(store->op2)->t);  /* Needs dummy CONV.int.*. */
 	} else {  /* I64/U64 are boxed, U32 is hidden behind a CONV.num.u32. */
 	  goto store_fwd;
@@ -869,6 +901,7 @@ int lj_opt_fwd_wasnonnil(jit_State *J, IROpT loadop, IRRef xref)
 
 #undef IR
 #undef fins
+#undef fleft
 #undef fright
 
 #endif

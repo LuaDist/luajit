@@ -31,41 +31,49 @@
 
 #define LJLIB_MODULE_os
 
-static int os_pushresult(lua_State *L, int i, const char *filename)
-{
-  int en = errno;  /* calls to Lua API may change this value */
-  if (i) {
-    setboolV(L->top-1, 1);
-    return 1;
-  } else {
-    setnilV(L->top-1);
-    lua_pushfstring(L, "%s: %s", filename, strerror(en));
-    lua_pushinteger(L, en);
-    return 3;
-  }
-}
-
 LJLIB_CF(os_execute)
 {
-  lua_pushinteger(L, system(luaL_optstring(L, 1, NULL)));
+#if LJ_TARGET_CONSOLE
+#if LJ_52
+  errno = ENOSYS;
+  return luaL_fileresult(L, 0, NULL);
+#else
+  lua_pushinteger(L, -1);
   return 1;
+#endif
+#else
+  const char *cmd = luaL_optstring(L, 1, NULL);
+  int stat = system(cmd);
+#if LJ_52
+  if (cmd)
+    return luaL_execresult(L, stat);
+  setboolV(L->top++, 1);
+#else
+  setintV(L->top++, stat);
+#endif
+  return 1;
+#endif
 }
 
 LJLIB_CF(os_remove)
 {
   const char *filename = luaL_checkstring(L, 1);
-  return os_pushresult(L, remove(filename) == 0, filename);
+  return luaL_fileresult(L, remove(filename) == 0, filename);
 }
 
 LJLIB_CF(os_rename)
 {
   const char *fromname = luaL_checkstring(L, 1);
   const char *toname = luaL_checkstring(L, 2);
-  return os_pushresult(L, rename(fromname, toname) == 0, fromname);
+  return luaL_fileresult(L, rename(fromname, toname) == 0, fromname);
 }
 
 LJLIB_CF(os_tmpname)
 {
+#if LJ_TARGET_PS3
+  lj_err_caller(L, LJ_ERR_OSUNIQF);
+  return 0;
+#else
 #if LJ_TARGET_POSIX
   char buf[15+1];
   int fp;
@@ -82,11 +90,16 @@ LJLIB_CF(os_tmpname)
 #endif
   lua_pushstring(L, buf);
   return 1;
+#endif
 }
 
 LJLIB_CF(os_getenv)
 {
+#if LJ_TARGET_CONSOLE
+  lua_pushnil(L);
+#else
   lua_pushstring(L, getenv(luaL_checkstring(L, 1)));  /* if NULL push nil */
+#endif
   return 1;
 }
 
@@ -154,13 +167,24 @@ LJLIB_CF(os_date)
   const char *s = luaL_optstring(L, 1, "%c");
   time_t t = luaL_opt(L, (time_t)luaL_checknumber, 2, time(NULL));
   struct tm *stm;
+#if LJ_TARGET_POSIX
+  struct tm rtm;
+#endif
   if (*s == '!') {  /* UTC? */
+    s++;  /* Skip '!' */
+#if LJ_TARGET_POSIX
+    stm = gmtime_r(&t, &rtm);
+#else
     stm = gmtime(&t);
-    s++;  /* skip `!' */
+#endif
   } else {
+#if LJ_TARGET_POSIX
+    stm = localtime_r(&t, &rtm);
+#else
     stm = localtime(&t);
+#endif
   }
-  if (stm == NULL) {  /* invalid date? */
+  if (stm == NULL) {  /* Invalid date? */
     setnilV(L->top-1);
   } else if (strcmp(s, "*t") == 0) {
     lua_createtable(L, 0, 9);  /* 9 = number of fields */
@@ -179,11 +203,11 @@ LJLIB_CF(os_date)
     cc[0] = '%'; cc[2] = '\0';
     luaL_buffinit(L, &b);
     for (; *s; s++) {
-      if (*s != '%' || *(s + 1) == '\0') {  /* no conversion specifier? */
+      if (*s != '%' || *(s + 1) == '\0') {  /* No conversion specifier? */
 	luaL_addchar(&b, *s);
       } else {
 	size_t reslen;
-	char buff[200];  /* should be big enough for any conversion result */
+	char buff[200];  /* Should be big enough for any conversion result. */
 	cc[1] = *(++s);
 	reslen = strftime(buff, sizeof(buff), cc, stm);
 	luaL_addlstring(&b, buff, reslen);

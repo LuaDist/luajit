@@ -18,6 +18,7 @@
 #include "lj_frame.h"
 #include "lj_bc.h"
 #include "lj_vm.h"
+#include "lj_strscan.h"
 
 /* -- Metamethod handling ------------------------------------------------- */
 
@@ -193,7 +194,7 @@ static cTValue *str2num(cTValue *o, TValue *n)
     return o;
   else if (tvisint(o))
     return (setnumV(n, (lua_Number)intV(o)), n);
-  else if (tvisstr(o) && lj_str_tonum(strV(o), n))
+  else if (tvisstr(o) && lj_strscan_num(strV(o), n))
     return n;
   else
     return NULL;
@@ -314,19 +315,13 @@ TValue * LJ_FASTCALL lj_meta_len(lua_State *L, cTValue *o)
 {
   cTValue *mo = lj_meta_lookup(L, o, MM_len);
   if (tvisnil(mo)) {
-#ifdef LUAJIT_ENABLE_LUA52COMPAT
-    if (tvistab(o))
+    if (LJ_52 && tvistab(o))
       tabref(tabV(o)->metatable)->nomm |= (uint8_t)(1u<<MM_len);
     else
-#endif
       lj_err_optype(L, o, LJ_ERR_OPLEN);
     return NULL;
   }
-#ifdef LUAJIT_ENABLE_LUA52COMPAT
-  return mmcall(L, lj_cont_ra, mo, o, o);
-#else
-  return mmcall(L, lj_cont_ra, mo, o, niltv(L));
-#endif
+  return mmcall(L, lj_cont_ra, mo, o, LJ_52 ? o : niltv(L));
 }
 
 /* Helper for equality comparisons. __eq metamethod. */
@@ -391,7 +386,8 @@ TValue *lj_meta_comp(lua_State *L, cTValue *o1, cTValue *o2, int op)
     cTValue *mo = lj_meta_lookup(L, tviscdata(o1) ? o1 : o2, mm);
     if (LJ_UNLIKELY(tvisnil(mo))) goto err;
     return mmcall(L, cont, mo, o1, o2);
-  } else if (itype(o1) == itype(o2)) {  /* Never called with two numbers. */
+  } else if (LJ_52 || itype(o1) == itype(o2)) {
+    /* Never called with two numbers. */
     if (tvisstr(o1) && tvisstr(o2)) {
       int32_t res = lj_str_cmp(strV(o1), strV(o2));
       return (TValue *)(intptr_t)(((op&2) ? res <= 0 : res < 0) ^ (op&1));
@@ -401,8 +397,13 @@ TValue *lj_meta_comp(lua_State *L, cTValue *o1, cTValue *o2, int op)
 	ASMFunction cont = (op & 1) ? lj_cont_condf : lj_cont_condt;
 	MMS mm = (op & 2) ? MM_le : MM_lt;
 	cTValue *mo = lj_meta_lookup(L, o1, mm);
+#if LJ_52
+	if (tvisnil(mo) && tvisnil((mo = lj_meta_lookup(L, o2, mm))))
+#else
 	cTValue *mo2 = lj_meta_lookup(L, o2, mm);
-	if (tvisnil(mo) || !lj_obj_equal(mo, mo2)) {
+	if (tvisnil(mo) || !lj_obj_equal(mo, mo2))
+#endif
+	{
 	  if (op & 2) {  /* MM_le not found: retry with MM_lt. */
 	    cTValue *ot = o1; o1 = o2; o2 = ot;  /* Swap operands. */
 	    op ^= 3;  /* Use LT and flip condition. */
@@ -436,12 +437,9 @@ void lj_meta_call(lua_State *L, TValue *func, TValue *top)
 /* Helper for FORI. Coercion. */
 void LJ_FASTCALL lj_meta_for(lua_State *L, TValue *o)
 {
-  if (!(tvisnumber(o) || (tvisstr(o) && lj_str_tonumber(strV(o), o))))
-    lj_err_msg(L, LJ_ERR_FORINIT);
-  if (!(tvisnumber(o+1) || (tvisstr(o+1) && lj_str_tonumber(strV(o+1), o+1))))
-    lj_err_msg(L, LJ_ERR_FORLIM);
-  if (!(tvisnumber(o+2) || (tvisstr(o+2) && lj_str_tonumber(strV(o+2), o+2))))
-    lj_err_msg(L, LJ_ERR_FORSTEP);
+  if (!lj_strscan_numberobj(o)) lj_err_msg(L, LJ_ERR_FORINIT);
+  if (!lj_strscan_numberobj(o+1)) lj_err_msg(L, LJ_ERR_FORLIM);
+  if (!lj_strscan_numberobj(o+2)) lj_err_msg(L, LJ_ERR_FORSTEP);
   if (LJ_DUALNUM) {
     /* Ensure all slots are integers or all slots are numbers. */
     int32_t k[3];

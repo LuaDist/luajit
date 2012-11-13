@@ -80,7 +80,7 @@ typedef unsigned int uintptr_t;
 
 /* JIT compiler limits. */
 #define LJ_MAX_JSLOTS	250		/* Max. # of stack slots for a trace. */
-#define LJ_MAX_PHI	32		/* Max. # of PHIs for a loop. */
+#define LJ_MAX_PHI	64		/* Max. # of PHIs for a loop. */
 #define LJ_MAX_EXITSTUBGR	16	/* Max. # of exit stub groups. */
 
 /* Various macros. */
@@ -120,7 +120,7 @@ typedef uintptr_t BloomFilter;
 #define LJ_NOINLINE	__attribute__((noinline))
 
 #if defined(__ELF__) || defined(__MACH__)
-#if !((defined(__sun__) && defined(__svr4__)) || defined(__solaris__))
+#if !((defined(__sun__) && defined(__svr4__)) || defined(__solaris__) || defined(__CELLOS_LV2__))
 #define LJ_NOAPI	extern __attribute__((visibility("hidden")))
 #endif
 #endif
@@ -197,7 +197,16 @@ static LJ_AINLINE uint64_t lj_bswap64(uint64_t x)
 }
 #endif
 #else
-#error "missing define for lj_bswap()"
+static LJ_AINLINE uint32_t lj_bswap(uint32_t x)
+{
+  return (x << 24) | ((x & 0xff00) << 8) | ((x >> 8) & 0xff00) | (x >> 24);
+}
+
+static LJ_AINLINE uint64_t lj_bswap64(uint64_t x)
+{
+  return (uint64_t)lj_bswap((uint32_t)(x >> 32)) |
+	 ((uint64_t)lj_bswap((uint32_t)x) << 32);
+}
 #endif
 
 typedef union __attribute__((packed)) Unaligned16 {
@@ -232,6 +241,11 @@ static LJ_AINLINE uint32_t lj_getu32(const void *p)
 #if defined(_M_IX86)
 #define LJ_FASTCALL	__fastcall
 #endif
+
+unsigned char _BitScanForward(uint32_t *, unsigned long);
+unsigned char _BitScanReverse(uint32_t *, unsigned long);
+unsigned long _byteswap_ulong(unsigned long);
+uint64_t _byteswap_uint64(uint64_t);
 
 static LJ_AINLINE uint32_t lj_ffs(uint32_t x)
 {

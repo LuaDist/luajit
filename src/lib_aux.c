@@ -19,7 +19,62 @@
 #include "lj_obj.h"
 #include "lj_err.h"
 #include "lj_state.h"
+#include "lj_trace.h"
 #include "lj_lib.h"
+
+#if LJ_TARGET_POSIX
+#include <sys/wait.h>
+#endif
+
+/* -- I/O error handling -------------------------------------------------- */
+
+LUALIB_API int luaL_fileresult(lua_State *L, int stat, const char *fname)
+{
+  if (stat) {
+    setboolV(L->top++, 1);
+    return 1;
+  } else {
+    int en = errno;  /* Lua API calls may change this value. */
+    setnilV(L->top++);
+    if (fname)
+      lua_pushfstring(L, "%s: %s", fname, strerror(en));
+    else
+      lua_pushfstring(L, "%s", strerror(en));
+    setintV(L->top++, en);
+    lj_trace_abort(G(L));
+    return 3;
+  }
+}
+
+LUALIB_API int luaL_execresult(lua_State *L, int stat)
+{
+  if (stat != -1) {
+#if LJ_TARGET_POSIX
+    if (WIFSIGNALED(stat)) {
+      stat = WTERMSIG(stat);
+      setnilV(L->top++);
+      lua_pushliteral(L, "signal");
+    } else {
+      if (WIFEXITED(stat))
+	stat = WEXITSTATUS(stat);
+      if (stat == 0)
+	setboolV(L->top++, 1);
+      else
+	setnilV(L->top++);
+      lua_pushliteral(L, "exit");
+    }
+#else
+    if (stat == 0)
+      setboolV(L->top++, 1);
+    else
+      setnilV(L->top++);
+    lua_pushliteral(L, "exit");
+#endif
+    setintV(L->top++, stat);
+    return 3;
+  }
+  return luaL_fileresult(L, 0, NULL);
+}
 
 /* -- Module registration ------------------------------------------------- */
 
@@ -233,89 +288,15 @@ LUALIB_API void luaL_unref(lua_State *L, int t, int ref)
   }
 }
 
-/* -- Load Lua code ------------------------------------------------------- */
-
-typedef struct FileReaderCtx {
-  FILE *fp;
-  char buf[LUAL_BUFFERSIZE];
-} FileReaderCtx;
-
-static const char *reader_file(lua_State *L, void *ud, size_t *size)
-{
-  FileReaderCtx *ctx = (FileReaderCtx *)ud;
-  UNUSED(L);
-  if (feof(ctx->fp)) return NULL;
-  *size = fread(ctx->buf, 1, sizeof(ctx->buf), ctx->fp);
-  return *size > 0 ? ctx->buf : NULL;
-}
-
-LUALIB_API int luaL_loadfile(lua_State *L, const char *filename)
-{
-  FileReaderCtx ctx;
-  int status;
-  const char *chunkname;
-  if (filename) {
-    ctx.fp = fopen(filename, "rb");
-    if (ctx.fp == NULL) {
-      lua_pushfstring(L, "cannot open %s: %s", filename, strerror(errno));
-      return LUA_ERRFILE;
-    }
-    chunkname = lua_pushfstring(L, "@%s", filename);
-  } else {
-    ctx.fp = stdin;
-    chunkname = "=stdin";
-  }
-  status = lua_load(L, reader_file, &ctx, chunkname);
-  if (ferror(ctx.fp)) {
-    L->top -= filename ? 2 : 1;
-    lua_pushfstring(L, "cannot read %s: %s", chunkname+1, strerror(errno));
-    if (filename)
-      fclose(ctx.fp);
-    return LUA_ERRFILE;
-  }
-  if (filename) {
-    L->top--;
-    copyTV(L, L->top-1, L->top);
-    fclose(ctx.fp);
-  }
-  return status;
-}
-
-typedef struct StringReaderCtx {
-  const char *str;
-  size_t size;
-} StringReaderCtx;
-
-static const char *reader_string(lua_State *L, void *ud, size_t *size)
-{
-  StringReaderCtx *ctx = (StringReaderCtx *)ud;
-  UNUSED(L);
-  if (ctx->size == 0) return NULL;
-  *size = ctx->size;
-  ctx->size = 0;
-  return ctx->str;
-}
-
-LUALIB_API int luaL_loadbuffer(lua_State *L, const char *buf, size_t size,
-			       const char *name)
-{
-  StringReaderCtx ctx;
-  ctx.str = buf;
-  ctx.size = size;
-  return lua_load(L, reader_string, &ctx, name);
-}
-
-LUALIB_API int luaL_loadstring(lua_State *L, const char *s)
-{
-  return luaL_loadbuffer(L, s, strlen(s), s);
-}
-
 /* -- Default allocator and panic function -------------------------------- */
 
 static int panic(lua_State *L)
 {
-  fprintf(stderr, "PANIC: unprotected error in call to Lua API (%s)\n",
-	  lua_tostring(L, -1));
+  const char *s = lua_tostring(L, -1);
+  fputs("PANIC: unprotected error in call to Lua API (", stderr);
+  fputs(s ? s : "?", stderr);
+  fputc(')', stderr); fputc('\n', stderr);
+  fflush(stderr);
   return 0;
 }
 
@@ -366,7 +347,7 @@ LUALIB_API lua_State *luaL_newstate(void)
 LUA_API lua_State *lua_newstate(lua_Alloc f, void *ud)
 {
   UNUSED(f); UNUSED(ud);
-  fprintf(stderr, "Must use luaL_newstate() for 64 bit target\n");
+  fputs("Must use luaL_newstate() for 64 bit target\n", stderr);
   return NULL;
 }
 #endif

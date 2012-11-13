@@ -97,9 +97,23 @@ enum {
 #define CFRAME_OFS_L		12
 #define CFRAME_OFS_PC		8
 #define CFRAME_OFS_MULTRES	4
+#if LJ_ARCH_HASFPU
+#define CFRAME_SIZE		128
+#else
 #define CFRAME_SIZE		64
+#endif
 #define CFRAME_SHIFT_MULTRES	3
 #elif LJ_TARGET_PPC
+#if LJ_ARCH_PPC64
+#define CFRAME_OFS_ERRF		472
+#define CFRAME_OFS_NRES		468
+#define CFRAME_OFS_PREV		448
+#define CFRAME_OFS_L		464
+#define CFRAME_OFS_PC		460
+#define CFRAME_OFS_MULTRES	456
+#define CFRAME_SIZE		400
+#define CFRAME_SHIFT_MULTRES	3
+#else
 #define CFRAME_OFS_ERRF		48
 #define CFRAME_OFS_NRES		44
 #define CFRAME_OFS_PREV		40
@@ -108,6 +122,7 @@ enum {
 #define CFRAME_OFS_MULTRES	28
 #define CFRAME_SIZE		272
 #define CFRAME_SHIFT_MULTRES	3
+#endif
 #elif LJ_TARGET_PPCSPE
 #define CFRAME_OFS_ERRF		28
 #define CFRAME_OFS_NRES		24

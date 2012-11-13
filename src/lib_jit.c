@@ -412,30 +412,16 @@ LJLIB_CF(jit_util_ircalladdr)
   return 0;
 }
 
-#else
-
-static int trace_nojit(lua_State *L)
-{
-  UNUSED(L);
-  return 0;
-}
-#define lj_cf_jit_util_traceinfo	trace_nojit
-#define lj_cf_jit_util_traceir		trace_nojit
-#define lj_cf_jit_util_tracek		trace_nojit
-#define lj_cf_jit_util_tracesnap	trace_nojit
-#define lj_cf_jit_util_tracemc		trace_nojit
-#define lj_cf_jit_util_traceexitstub	trace_nojit
-#define lj_cf_jit_util_ircalladdr	trace_nojit
-
 #endif
 
 #include "lj_libdef.h"
 
 /* -- jit.opt module ------------------------------------------------------ */
 
+#if LJ_HASJIT
+
 #define LJLIB_MODULE_jit_opt
 
-#if LJ_HASJIT
 /* Parse optimization level. */
 static int jitopt_level(jit_State *J, const char *str)
 {
@@ -502,12 +488,10 @@ static int jitopt_param(jit_State *J, const char *str)
   }
   return 0;  /* No match. */
 }
-#endif
 
 /* jit.opt.start(flags...) */
 LJLIB_CF(jit_opt_start)
 {
-#if LJ_HASJIT
   jit_State *J = L2J(L);
   int nargs = (int)(L->top - L->base);
   if (nargs == 0) {
@@ -522,13 +506,12 @@ LJLIB_CF(jit_opt_start)
 	lj_err_callerv(L, LJ_ERR_JITOPT, str);
     }
   }
-#else
-  lj_err_caller(L, LJ_ERR_NOJIT);
-#endif
   return 0;
 }
 
 #include "lj_libdef.h"
+
+#endif
 
 /* -- JIT compiler initialization ----------------------------------------- */
 
@@ -581,7 +564,7 @@ static uint32_t jit_cpudetect(lua_State *L)
 #if LJ_TARGET_X86
 #if !defined(LUAJIT_CPU_NOCMOV)
   if (!(flags & JIT_F_CMOV))
-    luaL_error(L, "Ancient CPU lacks CMOV support (recompile with -DLUAJIT_CPU_NOCMOV)");
+    luaL_error(L, "CPU not supported");
 #endif
 #if defined(LUAJIT_CPU_SSE2)
   if (!(flags & JIT_F_SSE2))
@@ -590,34 +573,39 @@ static uint32_t jit_cpudetect(lua_State *L)
 #endif
 #elif LJ_TARGET_ARM
 #if LJ_HASJIT
-  /* Compile-time ARM CPU detection. */
-#if __ARM_ARCH_7__ || __ARM_ARCH_7A__ || __ARM_ARCH_7R__
-  flags |= JIT_F_ARMV6|JIT_F_ARMV6T2|JIT_F_ARMV7;
-#elif __ARM_ARCH_6T2__
-  flags |= JIT_F_ARMV6|JIT_F_ARMV6T2;
-#elif __ARM_ARCH_6__ || __ARM_ARCH_6J__ || __ARM_ARCH_6Z__ || __ARM_ARCH_6ZK__
-  flags |= JIT_F_ARMV6;
-#endif
-  /* Runtime ARM CPU detection. */
+  int ver = LJ_ARCH_VERSION;  /* Compile-time ARM CPU detection. */
 #if LJ_TARGET_LINUX
-  if (!(flags & JIT_F_ARMV7)) {
+  if (ver < 70) {  /* Runtime ARM CPU detection. */
     struct utsname ut;
     uname(&ut);
     if (strncmp(ut.machine, "armv", 4) == 0) {
       if (ut.machine[4] >= '7')
-	flags |= JIT_F_ARMV6|JIT_F_ARMV6T2|JIT_F_ARMV7;
+	ver = 70;
       else if (ut.machine[4] == '6')
-	flags |= JIT_F_ARMV6;
+	ver = 60;
     }
   }
 #endif
+  flags |= ver >= 70 ? JIT_F_ARMV7 :
+	   ver >= 61 ? JIT_F_ARMV6T2_ :
+	   ver >= 60 ? JIT_F_ARMV6_ : 0;
+  flags |= LJ_ARCH_HASFPU == 0 ? 0 : ver >= 70 ? JIT_F_VFPV3 : JIT_F_VFPV2;
 #endif
-#elif LJ_TARGET_PPC || LJ_TARGET_PPCSPE
+#elif LJ_TARGET_PPC
+#if LJ_HASJIT
+#if LJ_ARCH_SQRT
+  flags |= JIT_F_SQRT;
+#endif
+#if LJ_ARCH_ROUND
+  flags |= JIT_F_ROUND;
+#endif
+#endif
+#elif LJ_TARGET_PPCSPE
   /* Nothing to do. */
 #elif LJ_TARGET_MIPS
 #if LJ_HASJIT
   /* Compile-time MIPS CPU detection. */
-#if _MIPS_ARCH_MIPS32R2
+#if LJ_ARCH_VERSION >= 20
   flags |= JIT_F_MIPS32R2;
 #endif
   /* Runtime MIPS CPU detection. */
@@ -665,7 +653,9 @@ LUALIB_API int luaopen_jit(lua_State *L)
 #ifndef LUAJIT_DISABLE_JITUTIL
   LJ_LIB_REG(L, "jit.util", jit_util);
 #endif
+#if LJ_HASJIT
   LJ_LIB_REG(L, "jit.opt", jit_opt);
+#endif
   L->top -= 2;
   jit_init(L);
   return 1;

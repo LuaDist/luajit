@@ -20,8 +20,12 @@
 #include "lj_jit.h"
 #include "lj_iropt.h"
 #include "lj_trace.h"
+#if LJ_HASFFI
+#include "lj_ctype.h"
+#endif
 #include "lj_carith.h"
 #include "lj_vm.h"
+#include "lj_strscan.h"
 
 /* Here's a short description how the FOLD engine processes instructions:
 **
@@ -427,14 +431,14 @@ LJFOLDF(kfold_bswap64)
 #endif
 }
 
-LJFOLD(LT KINT64 KINT)
-LJFOLD(GE KINT64 KINT)
-LJFOLD(LE KINT64 KINT)
-LJFOLD(GT KINT64 KINT)
-LJFOLD(ULT KINT64 KINT)
-LJFOLD(UGE KINT64 KINT)
-LJFOLD(ULE KINT64 KINT)
-LJFOLD(UGT KINT64 KINT)
+LJFOLD(LT KINT64 KINT64)
+LJFOLD(GE KINT64 KINT64)
+LJFOLD(LE KINT64 KINT64)
+LJFOLD(GT KINT64 KINT64)
+LJFOLD(ULT KINT64 KINT64)
+LJFOLD(UGE KINT64 KINT64)
+LJFOLD(ULE KINT64 KINT64)
+LJFOLD(UGT KINT64 KINT64)
 LJFOLDF(kfold_int64comp)
 {
 #if LJ_HASFFI
@@ -488,7 +492,7 @@ LJFOLD(STRREF KGC KINT)
 LJFOLDF(kfold_strref)
 {
   GCstr *str = ir_kstr(fleft);
-  lua_assert((MSize)fright->i < str->len);
+  lua_assert((MSize)fright->i <= str->len);
   return lj_ir_kkptr(J, (char *)strdata(str) + fright->i);
 }
 
@@ -535,7 +539,16 @@ LJFOLDF(kfold_add_kgc)
 #else
   ptrdiff_t ofs = fright->i;
 #endif
-  return lj_ir_kkptr(J, (char *)o + ofs);
+#if LJ_HASFFI
+  if (irt_iscdata(fleft->t)) {
+    CType *ct = ctype_raw(ctype_ctsG(J2G(J)), gco2cd(o)->ctypeid);
+    if (ctype_isnum(ct->info) || ctype_isenum(ct->info) ||
+	ctype_isptr(ct->info) || ctype_isfunc(ct->info) ||
+	ctype_iscomplex(ct->info) || ctype_isvector(ct->info))
+      return lj_ir_kkptr(J, (char *)o + ofs);
+  }
+#endif
+  return lj_ir_kptr(J, (char *)o + ofs);
 }
 
 LJFOLD(ADD KPTR KINT)
@@ -551,6 +564,18 @@ LJFOLDF(kfold_add_kptr)
   ptrdiff_t ofs = fright->i;
 #endif
   return lj_ir_kptr_(J, fleft->o, (char *)p + ofs);
+}
+
+LJFOLD(ADD any KGC)
+LJFOLD(ADD any KPTR)
+LJFOLD(ADD any KKPTR)
+LJFOLDF(kfold_add_kright)
+{
+  if (fleft->o == IR_KINT || fleft->o == IR_KINT64) {
+    IRRef1 tmp = fins->op1; fins->op1 = fins->op2; fins->op2 = tmp;
+    return RETRYFOLD;
+  }
+  return NEXTFOLD;
 }
 
 /* -- Constant folding of conversions ------------------------------------- */
@@ -573,8 +598,24 @@ LJFOLDF(kfold_conv_kintu32_num)
   return lj_ir_knum(J, (lua_Number)(uint32_t)fleft->i);
 }
 
+LJFOLD(CONV KINT IRCONV_INT_I8)
+LJFOLD(CONV KINT IRCONV_INT_U8)
+LJFOLD(CONV KINT IRCONV_INT_I16)
+LJFOLD(CONV KINT IRCONV_INT_U16)
+LJFOLDF(kfold_conv_kint_ext)
+{
+  int32_t k = fleft->i;
+  if ((fins->op2 & IRCONV_SRCMASK) == IRT_I8) k = (int8_t)k;
+  else if ((fins->op2 & IRCONV_SRCMASK) == IRT_U8) k = (uint8_t)k;
+  else if ((fins->op2 & IRCONV_SRCMASK) == IRT_I16) k = (int16_t)k;
+  else k = (uint16_t)k;
+  return INTFOLD(k);
+}
+
 LJFOLD(CONV KINT IRCONV_I64_INT)
 LJFOLD(CONV KINT IRCONV_U64_INT)
+LJFOLD(CONV KINT IRCONV_I64_U32)
+LJFOLD(CONV KINT IRCONV_U64_U32)
 LJFOLDF(kfold_conv_kint_i64)
 {
   if ((fins->op2 & IRCONV_SEXT))
@@ -627,7 +668,14 @@ LJFOLD(CONV KNUM IRCONV_U32_NUM)
 LJFOLDF(kfold_conv_knum_u32_num)
 {
   lua_assert((fins->op2 & IRCONV_TRUNC));
+#ifdef _MSC_VER
+  {  /* Workaround for MSVC bug. */
+    volatile uint32_t u = (uint32_t)knumleft;
+    return INTFOLD((int32_t)u);
+  }
+#else
   return INTFOLD((int32_t)(uint32_t)knumleft);
+#endif
 }
 
 LJFOLD(CONV KNUM IRCONV_I64_NUM)
@@ -660,7 +708,7 @@ LJFOLD(STRTO KGC)
 LJFOLDF(kfold_strto)
 {
   TValue n;
-  if (lj_str_tonum(ir_kstr(fleft), &n))
+  if (lj_strscan_num(ir_kstr(fleft), &n))
     return lj_ir_knum(J, numV(&n));
   return FAILFOLD;
 }
@@ -795,6 +843,15 @@ LJFOLDF(simplify_nummuldiv_k)
     fins->o = IR_ADD;
     fins->op2 = fins->op1;
     return RETRYFOLD;
+  } else if (fins->o == IR_DIV) {  /* x / 2^k ==> x * 2^-k */
+    uint64_t u = ir_knum(fright)->u64;
+    uint32_t ex = ((uint32_t)(u >> 52) & 0x7ff);
+    if ((u & U64x(000fffff,ffffffff)) == 0 && ex - 1 < 0x7fd) {
+      u = (u & ((uint64_t)1 << 63)) | ((uint64_t)(0x7fe - ex) << 52);
+      fins->o = IR_MUL;  /* Multiply by exact reciprocal. */
+      fins->op2 = lj_ir_knum_u64(J, u);
+      return RETRYFOLD;
+    }
   }
   return NEXTFOLD;
 }
@@ -1212,7 +1269,7 @@ LJFOLDF(simplify_intsubsub_leftcancel)
 {
   if (!irt_isnum(fins->t)) {
     PHIBARRIER(fleft);
-    if (fins->op1 == fleft->op1) {  /* (i - j) - i ==> 0 - j */
+    if (fins->op2 == fleft->op1) {  /* (i - j) - i ==> 0 - j */
       fins->op1 = (IRRef1)lj_ir_kint(J, 0);
       fins->op2 = fleft->op2;
       return RETRYFOLD;
@@ -1743,7 +1800,7 @@ LJFOLDF(merge_eqne_snew_kgc)
   int32_t len = (int32_t)kstr->len;
   lua_assert(irt_isstr(fins->t));
 
-#if LJ_TARGET_X86ORX64
+#if LJ_TARGET_UNALIGNED
 #define FOLD_SNEW_MAX_LEN	4  /* Handle string lengths 0, 1, 2, 3, 4. */
 #define FOLD_SNEW_TYPE8		IRT_I8	/* Creates shorter immediates. */
 #else
@@ -1846,6 +1903,9 @@ LJFOLDF(cse_uref)
   return EMITFOLD;
 }
 
+LJFOLD(HREFK any any)
+LJFOLDX(lj_opt_fwd_hrefk)
+
 LJFOLD(HREF TNEW any)
 LJFOLDF(fwd_href_tnew)
 {
@@ -1936,16 +1996,17 @@ LJFOLDF(fload_str_len_snew)
 }
 
 /* The C type ID of cdata objects is immutable. */
-LJFOLD(FLOAD KGC IRFL_CDATA_TYPEID)
+LJFOLD(FLOAD KGC IRFL_CDATA_CTYPEID)
 LJFOLDF(fload_cdata_typeid_kgc)
 {
   if (LJ_LIKELY(J->flags & JIT_F_OPT_FOLD))
-    return INTFOLD((int32_t)ir_kcdata(fleft)->typeid);
+    return INTFOLD((int32_t)ir_kcdata(fleft)->ctypeid);
   return NEXTFOLD;
 }
 
 /* Get the contents of immutable cdata objects. */
 LJFOLD(FLOAD KGC IRFL_CDATA_PTR)
+LJFOLD(FLOAD KGC IRFL_CDATA_INT)
 LJFOLD(FLOAD KGC IRFL_CDATA_INT64)
 LJFOLDF(fload_cdata_int64_kgc)
 {
@@ -1959,8 +2020,8 @@ LJFOLDF(fload_cdata_int64_kgc)
   return NEXTFOLD;
 }
 
-LJFOLD(FLOAD CNEW IRFL_CDATA_TYPEID)
-LJFOLD(FLOAD CNEWI IRFL_CDATA_TYPEID)
+LJFOLD(FLOAD CNEW IRFL_CDATA_CTYPEID)
+LJFOLD(FLOAD CNEWI IRFL_CDATA_CTYPEID)
 LJFOLDF(fload_cdata_typeid_cnew)
 {
   if (LJ_LIKELY(J->flags & JIT_F_OPT_FOLD))
@@ -1968,8 +2029,9 @@ LJFOLDF(fload_cdata_typeid_cnew)
   return NEXTFOLD;
 }
 
-/* Pointer and int64 cdata objects are immutable. */
+/* Pointer, int and int64 cdata objects are immutable. */
 LJFOLD(FLOAD CNEWI IRFL_CDATA_PTR)
+LJFOLD(FLOAD CNEWI IRFL_CDATA_INT)
 LJFOLD(FLOAD CNEWI IRFL_CDATA_INT64)
 LJFOLDF(fload_cdata_ptr_int64_cnew)
 {
@@ -1979,8 +2041,9 @@ LJFOLDF(fload_cdata_ptr_int64_cnew)
 }
 
 LJFOLD(FLOAD any IRFL_STR_LEN)
-LJFOLD(FLOAD any IRFL_CDATA_TYPEID)
+LJFOLD(FLOAD any IRFL_CDATA_CTYPEID)
 LJFOLD(FLOAD any IRFL_CDATA_PTR)
+LJFOLD(FLOAD any IRFL_CDATA_INT)
 LJFOLD(FLOAD any IRFL_CDATA_INT64)
 LJFOLD(VLOAD any any)  /* Vararg loads have no corresponding stores. */
 LJFOLDX(lj_opt_cse)

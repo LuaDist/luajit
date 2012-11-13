@@ -157,7 +157,7 @@ LJLIB_CF(table_concat)
       lua_rawgeti(L, 1, i);
       o = L->top-1;
       if (!(tvisstr(o) || tvisnumber(o)))
-	lj_err_callerv(L, LJ_ERR_TABCAT, typename(o), i);
+	lj_err_callerv(L, LJ_ERR_TABCAT, lj_typename(o), i);
       luaL_addvalue(&b);
       if (i++ == e) break;
       if (seplen)
@@ -266,6 +266,24 @@ LJLIB_CF(table_sort)
   return 0;
 }
 
+#if LJ_52
+LJLIB_PUSH("n")
+LJLIB_CF(table_pack)
+{
+  TValue *array, *base = L->base;
+  MSize i, n = (uint32_t)(L->top - base);
+  GCtab *t = lj_tab_new(L, n ? n+1 : 0, 1);
+  /* NOBARRIER: The table is new (marked white). */
+  setintV(lj_tab_setstr(L, t, strV(lj_lib_upvalue(L, 1))), (int32_t)n);
+  for (array = tvref(t->array) + 1, i = 0; i < n; i++)
+    copyTV(L, &array[i], &base[i]);
+  settabV(L, base, t);
+  L->top = base+1;
+  lj_gc_check(L);
+  return 1;
+}
+#endif
+
 /* ------------------------------------------------------------------------ */
 
 #include "lj_libdef.h"
@@ -273,7 +291,7 @@ LJLIB_CF(table_sort)
 LUALIB_API int luaopen_table(lua_State *L)
 {
   LJ_LIB_REG(L, LUA_TABLIBNAME, table);
-#ifdef LUAJIT_ENABLE_LUA52COMPAT
+#if LJ_52
   lua_getglobal(L, "unpack");
   lua_setfield(L, -2, "unpack");
 #endif

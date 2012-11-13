@@ -15,10 +15,11 @@
 /* Lua lexer tokens. */
 #define TKDEF(_, __) \
   _(and) _(break) _(do) _(else) _(elseif) _(end) _(false) \
-  _(for) _(function) _(if) _(in) _(local) _(nil) _(not) _(or) \
+  _(for) _(function) _(goto) _(if) _(in) _(local) _(nil) _(not) _(or) \
   _(repeat) _(return) _(then) _(true) _(until) _(while) \
   __(concat, ..) __(dots, ...) __(eq, ==) __(ge, >=) __(le, <=) __(ne, ~=) \
-  __(number, <number>) __(name, <name>) __(string, <string>) __(eof, <eof>)
+  __(label, ::) __(number, <number>) __(name, <name>) __(string, <string>) \
+  __(eof, <eof>)
 
 enum {
   TK_OFS = 256,
@@ -40,9 +41,11 @@ typedef struct BCInsLine {
 
 /* Info for local variables. Only used during bytecode generation. */
 typedef struct VarInfo {
-  GCRef name;		/* Local variable name. */
+  GCRef name;		/* Local variable name or goto/label name. */
   BCPos startpc;	/* First point where the local variable is active. */
   BCPos endpc;		/* First point where the local variable is dead. */
+  uint8_t slot;		/* Variable slot. */
+  uint8_t info;		/* Variable/goto/label info. */
 } VarInfo;
 
 /* Lua lexer state. */
@@ -63,6 +66,7 @@ typedef struct LexState {
   BCLine lastline;	/* Line of last token. */
   GCstr *chunkname;	/* Current chunk name (interned string). */
   const char *chunkarg;	/* Chunk name argument. */
+  const char *mode;	/* Allow loading bytecode (b) and/or source text (t). */
   VarInfo *vstack;	/* Stack for names and extents of local variables. */
   MSize sizevstack;	/* Size of variable stack. */
   MSize vtop;		/* Top of variable stack. */

@@ -42,6 +42,8 @@ td.param_default {
 <ul><li>
 <a href="luajit.html">LuaJIT</a>
 <ul><li>
+<a href="http://luajit.org/download.html">Download <span class="ext">&raquo;</span></a>
+</li><li>
 <a href="install.html">Installation</a>
 </li><li>
 <a class="current" href="running.html">Running</a>
@@ -72,7 +74,7 @@ td.param_default {
 </li><li>
 <a href="http://luajit.org/performance.html">Performance <span class="ext">&raquo;</span></a>
 </li><li>
-<a href="http://luajit.org/download.html">Download <span class="ext">&raquo;</span></a>
+<a href="http://wiki.luajit.org/">Wiki <span class="ext">&raquo;</span></a>
 </li><li>
 <a href="http://luajit.org/list.html">Mailing List <span class="ext">&raquo;</span></a>
 </li></ul>
@@ -83,19 +85,6 @@ LuaJIT has only a single stand-alone executable, called <tt>luajit</tt> on
 POSIX systems or <tt>luajit.exe</tt> on Windows. It can be used to run simple
 Lua statements or whole Lua applications from the command line. It has an
 interactive mode, too.
-</p>
-<p class="indent" style="color: #c00000;">
-Note: the beta test releases only install under the versioned name on
-POSIX systems (to avoid overwriting a previous version). You either need
-to type <tt>luajit-2.0.0-beta10</tt> to start it or create a symlink
-with a command like this:
-</p>
-<pre class="code" style="color: #c00000;">
-sudo ln -sf luajit-2.0.0-beta10&nbsp;/usr/local/bin/luajit
-</pre>
-<p>
-Unlike previous versions <b>optimization is turned on by default</b> in
-LuaJIT 2.0!<br>It's no longer necessary to use <tt>luajit&nbsp;-O</tt>.
 </p>
 
 <h2 id="options">Command Line Options</h2>
@@ -197,7 +186,7 @@ itself. For a description of their options and output format, please
 read the comment block at the start of their source.
 They can be found in the <tt>lib</tt> directory of the source
 distribution or installed under the <tt>jit</tt> directory. By default
-this is <tt>/usr/local/share/luajit-2.0.0-beta10/jit</tt> on POSIX
+this is <tt>/usr/local/share/luajit-2.0.0/jit</tt> on POSIX
 systems.
 </p>
 

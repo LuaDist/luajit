@@ -23,9 +23,7 @@
 #include "lj_frame.h"
 #include "lj_trace.h"
 #include "lj_vm.h"
-#include "lj_lex.h"
-#include "lj_bcdump.h"
-#include "lj_parse.h"
+#include "lj_strscan.h"
 
 /* -- Common helper functions --------------------------------------------- */
 
@@ -236,7 +234,7 @@ LUA_API int lua_isnumber(lua_State *L, int idx)
 {
   cTValue *o = index2adr(L, idx);
   TValue tmp;
-  return (tvisnumber(o) || (tvisstr(o) && lj_str_tonumber(strV(o), &tmp)));
+  return (tvisnumber(o) || (tvisstr(o) && lj_strscan_number(strV(o), &tmp)));
 }
 
 LUA_API int lua_isstring(lua_State *L, int idx)
@@ -320,7 +318,7 @@ LUA_API lua_Number lua_tonumber(lua_State *L, int idx)
   TValue tmp;
   if (LJ_LIKELY(tvisnumber(o)))
     return numberVnum(o);
-  else if (tvisstr(o) && lj_str_tonum(strV(o), &tmp))
+  else if (tvisstr(o) && lj_strscan_num(strV(o), &tmp))
     return numV(&tmp);
   else
     return 0;
@@ -332,7 +330,7 @@ LUALIB_API lua_Number luaL_checknumber(lua_State *L, int idx)
   TValue tmp;
   if (LJ_LIKELY(tvisnumber(o)))
     return numberVnum(o);
-  else if (!(tvisstr(o) && lj_str_tonum(strV(o), &tmp)))
+  else if (!(tvisstr(o) && lj_strscan_num(strV(o), &tmp)))
     lj_err_argt(L, idx, LUA_TNUMBER);
   return numV(&tmp);
 }
@@ -345,7 +343,7 @@ LUALIB_API lua_Number luaL_optnumber(lua_State *L, int idx, lua_Number def)
     return numberVnum(o);
   else if (tvisnil(o))
     return def;
-  else if (!(tvisstr(o) && lj_str_tonum(strV(o), &tmp)))
+  else if (!(tvisstr(o) && lj_strscan_num(strV(o), &tmp)))
     lj_err_argt(L, idx, LUA_TNUMBER);
   return numV(&tmp);
 }
@@ -360,7 +358,7 @@ LUA_API lua_Integer lua_tointeger(lua_State *L, int idx)
   } else if (LJ_LIKELY(tvisnum(o))) {
     n = numV(o);
   } else {
-    if (!(tvisstr(o) && lj_str_tonumber(strV(o), &tmp)))
+    if (!(tvisstr(o) && lj_strscan_number(strV(o), &tmp)))
       return 0;
     if (tvisint(&tmp))
       return (lua_Integer)intV(&tmp);
@@ -383,7 +381,7 @@ LUALIB_API lua_Integer luaL_checkinteger(lua_State *L, int idx)
   } else if (LJ_LIKELY(tvisnum(o))) {
     n = numV(o);
   } else {
-    if (!(tvisstr(o) && lj_str_tonumber(strV(o), &tmp)))
+    if (!(tvisstr(o) && lj_strscan_number(strV(o), &tmp)))
       lj_err_argt(L, idx, LUA_TNUMBER);
     if (tvisint(&tmp))
       return (lua_Integer)intV(&tmp);
@@ -408,7 +406,7 @@ LUALIB_API lua_Integer luaL_optinteger(lua_State *L, int idx, lua_Integer def)
   } else if (tvisnil(o)) {
     return def;
   } else {
-    if (!(tvisstr(o) && lj_str_tonumber(strV(o), &tmp)))
+    if (!(tvisstr(o) && lj_strscan_number(strV(o), &tmp)))
       lj_err_argt(L, idx, LUA_TNUMBER);
     if (tvisint(&tmp))
       return (lua_Integer)intV(&tmp);
@@ -851,6 +849,26 @@ LUA_API const char *lua_getupvalue(lua_State *L, int idx, int n)
   return name;
 }
 
+LUA_API void *lua_upvalueid(lua_State *L, int idx, int n)
+{
+  GCfunc *fn = funcV(index2adr(L, idx));
+  n--;
+  api_check(L, (uint32_t)n < fn->l.nupvalues);
+  return isluafunc(fn) ? (void *)gcref(fn->l.uvptr[n]) :
+			 (void *)&fn->c.upvalue[n];
+}
+
+LUA_API void lua_upvaluejoin(lua_State *L, int idx1, int n1, int idx2, int n2)
+{
+  GCfunc *fn1 = funcV(index2adr(L, idx1));
+  GCfunc *fn2 = funcV(index2adr(L, idx2));
+  n1--; n2--;
+  api_check(L, isluafunc(fn1) && (uint32_t)n1 < fn1->l.nupvalues);
+  api_check(L, isluafunc(fn2) && (uint32_t)n2 < fn2->l.nupvalues);
+  setgcrefr(fn1->l.uvptr[n1], fn2->l.uvptr[n2]);
+  lj_gc_objbarrier(L, fn1, gcref(fn1->l.uvptr[n1]));
+}
+
 LUALIB_API void *luaL_checkudata(lua_State *L, int idx, const char *tname)
 {
   cTValue *o = index2adr(L, idx);
@@ -1085,6 +1103,9 @@ LUA_API int lua_yield(lua_State *L, int nresults)
 	while (--nresults >= 0) copyTV(L, t++, f++);
 	L->top = t;
       }
+      L->cframe = NULL;
+      L->status = LUA_YIELD;
+      return -1;
     } else {  /* Yield from hook: add a pseudo-frame. */
       TValue *top = L->top;
       hook_leave(g);
@@ -1094,14 +1115,14 @@ LUA_API int lua_yield(lua_State *L, int nresults)
       setframe_gc(top+2, obj2gco(L));
       setframe_ftsz(top+2, (int)((char *)(top+3)-(char *)L->base)+FRAME_CONT);
       L->top = L->base = top+3;
-    }
 #if LJ_TARGET_X64
-    lj_err_throw(L, LUA_YIELD);
+      lj_err_throw(L, LUA_YIELD);
 #else
-    L->cframe = NULL;
-    L->status = LUA_YIELD;
-    lj_vm_unwind_c(cf, LUA_YIELD);
+      L->cframe = NULL;
+      L->status = LUA_YIELD;
+      lj_vm_unwind_c(cf, LUA_YIELD);
 #endif
+    }
   }
   lj_err_msg(L, LJ_ERR_CYIELD);
   return 0;  /* unreachable */
@@ -1115,47 +1136,6 @@ LUA_API int lua_resume(lua_State *L, int nargs)
   setstrV(L, L->top, lj_err_str(L, LJ_ERR_COSUSP));
   incr_top(L);
   return LUA_ERRRUN;
-}
-
-/* -- Load and dump Lua code ---------------------------------------------- */
-
-static TValue *cpparser(lua_State *L, lua_CFunction dummy, void *ud)
-{
-  LexState *ls = (LexState *)ud;
-  GCproto *pt;
-  GCfunc *fn;
-  UNUSED(dummy);
-  cframe_errfunc(L->cframe) = -1;  /* Inherit error function. */
-  pt = lj_lex_setup(L, ls) ? lj_bcread(ls) : lj_parse(ls);
-  fn = lj_func_newL_empty(L, pt, tabref(L->env));
-  /* Don't combine above/below into one statement. */
-  setfuncV(L, L->top++, fn);
-  return NULL;
-}
-
-LUA_API int lua_load(lua_State *L, lua_Reader reader, void *data,
-		     const char *chunkname)
-{
-  LexState ls;
-  int status;
-  ls.rfunc = reader;
-  ls.rdata = data;
-  ls.chunkarg = chunkname ? chunkname : "?";
-  lj_str_initbuf(&ls.sb);
-  status = lj_vm_cpcall(L, NULL, &ls, cpparser);
-  lj_lex_cleanup(L, &ls);
-  lj_gc_check(L);
-  return status;
-}
-
-LUA_API int lua_dump(lua_State *L, lua_Writer writer, void *data)
-{
-  cTValue *o = L->top-1;
-  api_checknelems(L, 1);
-  if (tvisfunc(o) && isluafunc(funcV(o)))
-    return lj_bcwrite(L, funcproto(funcV(o)), writer, data, 0);
-  else
-    return 1;
 }
 
 /* -- GC and memory management -------------------------------------------- */

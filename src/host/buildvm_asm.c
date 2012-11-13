@@ -108,11 +108,16 @@ static void emit_asm_wordreloc(BuildCtx *ctx, uint8_t *p, int n,
     exit(1);
   }
 #elif LJ_TARGET_PPC || LJ_TARGET_PPCSPE
+#if LJ_TARGET_PS3
+#define TOCPREFIX "."
+#else
+#define TOCPREFIX ""
+#endif
   if ((ins >> 26) == 16) {
-    fprintf(ctx->fp, "\t%s %d, %d, %s\n",
+    fprintf(ctx->fp, "\t%s %d, %d, " TOCPREFIX "%s\n",
 	    (ins & 1) ? "bcl" : "bc", (ins >> 21) & 31, (ins >> 16) & 31, sym);
   } else if ((ins >> 26) == 18) {
-    fprintf(ctx->fp, "\t%s %s\n", (ins & 1) ? "bl" : "b", sym);
+    fprintf(ctx->fp, "\t%s " TOCPREFIX "%s\n", (ins & 1) ? "bl" : "b", sym);
   } else {
     fprintf(stderr,
 	    "Error: unsupported opcode %08x for %s symbol relocation.\n",
@@ -141,6 +146,24 @@ static void emit_asm_label(BuildCtx *ctx, const char *name, int size, int isfunc
 {
   switch (ctx->mode) {
   case BUILD_elfasm:
+#if LJ_TARGET_PS3
+    if (!strncmp(name, "lj_vm_", 6)) {
+      fprintf(ctx->fp,
+	"\n\t.globl %s\n"
+	"\n\t.section \".opd\",\"aw\"\n"
+	"%s:\n"
+	"\t.long .%s,.TOC.@tocbase32\n"
+	"\t.size %s,8\n"
+	"\t.previous\n"
+	"\t.globl .%s\n"
+	"\t.hidden .%s\n"
+	"\t.type .%s, " ELFASM_PX "function\n"
+	"\t.size .%s, %d\n"
+	".%s:\n",
+	name, name, name, name, name, name, name, name, size, name);
+      break;
+    }
+#endif
     fprintf(ctx->fp,
       "\n\t.globl %s\n"
       "\t.hidden %s\n"
@@ -196,7 +219,7 @@ void emit_asm(BuildCtx *ctx)
   if (ctx->mode != BUILD_machasm)
     fprintf(ctx->fp, ".Lbegin:\n");
 
-#if LJ_TARGET_ARM && defined(__GNUC__) && !defined(LUAJIT_NO_UNWIND)
+#if LJ_TARGET_ARM && defined(__GNUC__) && !LJ_NO_UNWIND
   /* This should really be moved into buildvm_arm.dasc. */
   fprintf(ctx->fp,
 	  ".fnstart\n"
@@ -210,8 +233,7 @@ void emit_asm(BuildCtx *ctx)
   for (i = rel = 0; i < ctx->nsym; i++) {
     int32_t ofs = ctx->sym[i].ofs;
     int32_t next = ctx->sym[i+1].ofs;
-#if LJ_TARGET_ARM && defined(__GNUC__) && !defined(LUAJIT_NO_UNWIND) && \
-    LJ_HASFFI
+#if LJ_TARGET_ARM && defined(__GNUC__) && !LJ_NO_UNWIND && LJ_HASFFI
     if (!strcmp(ctx->sym[i].name, "lj_vm_ffi_call"))
       fprintf(ctx->fp,
 	      ".globl lj_err_unwind_arm\n"
@@ -246,7 +268,7 @@ void emit_asm(BuildCtx *ctx)
 #endif
   }
 
-#if LJ_TARGET_ARM && defined(__GNUC__) && !defined(LUAJIT_NO_UNWIND)
+#if LJ_TARGET_ARM && defined(__GNUC__) && !LJ_NO_UNWIND
   fprintf(ctx->fp,
 #if !LJ_HASFFI
 	  ".globl lj_err_unwind_arm\n"
@@ -258,11 +280,13 @@ void emit_asm(BuildCtx *ctx)
   fprintf(ctx->fp, "\n");
   switch (ctx->mode) {
   case BUILD_elfasm:
+#if !LJ_TARGET_PS3
     fprintf(ctx->fp, "\t.section .note.GNU-stack,\"\"," ELFASM_PX "progbits\n");
+#endif
 #if LJ_TARGET_PPCSPE
     /* Soft-float ABI + SPE. */
     fprintf(ctx->fp, "\t.gnu_attribute 4, 2\n\t.gnu_attribute 8, 3\n");
-#elif LJ_TARGET_PPC
+#elif LJ_TARGET_PPC && !LJ_TARGET_PS3
     /* Hard-float ABI. */
     fprintf(ctx->fp, "\t.gnu_attribute 4, 1\n");
 #endif

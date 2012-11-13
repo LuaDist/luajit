@@ -42,19 +42,18 @@ CCOPT= -O2 -fomit-frame-pointer
 #
 # Target-specific compiler options:
 #
-# x86 only: it's recommended to compile at least for i686. By default the
-# assembler part of the interpreter makes use of CMOV/FCOMI*/FUCOMI*
-# instructions, anyway.
+# x86 only: it's recommended to compile at least for i686. Better yet,
+# compile for an architecture that has SSE2, too (-msse -msse2).
 #
 # x86/x64 only: For GCC 4.2 or higher and if you don't intend to distribute
 # the binaries to a different machine you could also use: -march=native
 #
-CCOPT_X86= -march=i686
-CCOPT_X64=
-CCOPT_ARM=
-CCOPT_PPC=
-CCOPT_PPCSPE=
-CCOPT_MIPS=
+CCOPT_x86= -march=i686
+CCOPT_x64=
+CCOPT_arm=
+CCOPT_ppc=
+CCOPT_ppcspe=
+CCOPT_mips=
 #
 CCDEBUG=
 # Uncomment the next line to generate debug information:
@@ -97,27 +96,14 @@ XCFLAGS=
 # make use of it.
 #XCFLAGS+= -DLUAJIT_DISABLE_FFI
 #
-# Enable some upwards-compatible features from Lua 5.2 that are unlikely
-# to break existing code (e.g. __pairs). Note that this does not provide
-# full compatibility with Lua 5.2 at this time.
+# Features from Lua 5.2 that are unlikely to break existing code are
+# enabled by default. Some other features that *might* break some existing
+# code (e.g. __pairs or os.execute() return values) can be enabled here.
+# Note: this does not provide full compatibility with Lua 5.2 at this time.
 #XCFLAGS+= -DLUAJIT_ENABLE_LUA52COMPAT
 #
 # Disable the JIT compiler, i.e. turn LuaJIT into a pure interpreter.
 #XCFLAGS+= -DLUAJIT_DISABLE_JIT
-#
-# x86 only: use SSE2 instead of x87 instructions in the interpreter
-# (always enabled for x64). A pure interpreter built with this flag won't
-# run on older CPUs (before P4 or K8). There isn't much of a speed
-# difference, so this is not enabled by default.
-# The JIT compiler is not affected by this flag. It always uses runtime
-# CPU feature detection before emitting code for SSE2 up to SSE4.1.
-#XCFLAGS+= -DLUAJIT_CPU_SSE2
-#
-# x86 only: Disable the use of CMOV and FCOMI*/FUCOMI* instructions in the
-# interpreter. Do this only if you intend to use REALLY ANCIENT CPUs
-# (before Pentium Pro, or on the VIA C3). This generally slows down the
-# interpreter. Don't bother if your OS wouldn't run on them, anyway.
-#XCFLAGS+= -DLUAJIT_CPU_NOCMOV
 #
 # Some architectures (e.g. PPC) can use either single-number (1) or
 # dual-number (2) mode. Uncomment one of these lines to override the
@@ -182,13 +168,11 @@ LDOPTIONS= $(CCDEBUG) $(LDFLAGS)
 
 HOST_CC= $(CC)
 HOST_RM= rm -f
-# NOTE: The LuaJIT distribution comes with pre-generated buildvm_*.h files.
-# You DO NOT NEED an installed copy of (plain) Lua 5.1 to run DynASM unless
-# you want to MODIFY the corresponding *.dasc file. You can also use LuaJIT
-# itself (bootstrapped from a pre-generated file) to run DynASM of course.
-HOST_LUA= lua
+# If left blank, minilua is built and used. You can supply an installed
+# copy of (plain) Lua 5.1 or 5.2, plus Lua BitOp. E.g. with: HOST_LUA=lua
+HOST_LUA=
 
-HOST_XCFLAGS=
+HOST_XCFLAGS= -I.
 HOST_XLDFLAGS=
 HOST_XLIBS=
 HOST_ACFLAGS= $(CCOPTIONS) $(HOST_XCFLAGS) $(TARGET_ARCH) $(HOST_CFLAGS)
@@ -205,48 +189,43 @@ TARGET_AR= $(CROSS)ar rcus
 TARGET_STRIP= $(CROSS)strip
 
 TARGET_SONAME= libluajit-$(ABIVER).so.$(MAJVER)
-TARGET_DYLIBNAME= libluajit-$(NODOTABIVER).$(MAJVER).dylib
+TARGET_DYLIBNAME= libluajit-$(ABIVER).$(MAJVER).dylib
 TARGET_DYLIBPATH= $(or $(PREFIX),/usr/local)/lib/$(TARGET_DYLIBNAME)
 TARGET_DLLNAME= lua$(NODOTABIVER).dll
 TARGET_XSHLDFLAGS= -shared -fPIC -Wl,-soname,$(TARGET_SONAME)
 TARGET_DYNXLDOPTS=
 
-TARGET_XCFLAGS= -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -U_FORTIFY_SOURCE
+TARGET_LFSFLAGS= -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE
+TARGET_XCFLAGS= $(TARGET_LFSFLAGS) -U_FORTIFY_SOURCE
 TARGET_XLDFLAGS=
 TARGET_XLIBS= -lm
 TARGET_TCFLAGS= $(CCOPTIONS) $(TARGET_XCFLAGS) $(TARGET_FLAGS) $(TARGET_CFLAGS)
-TARGET_ACFLAGS= $(CCOPTIONS) $(TARGET_XCFLAGS) $(TARGET_ARCH) $(TARGET_FLAGS) $(TARGET_CFLAGS)
+TARGET_ACFLAGS= $(CCOPTIONS) $(TARGET_XCFLAGS) $(TARGET_FLAGS) $(TARGET_CFLAGS)
 TARGET_ALDFLAGS= $(LDOPTIONS) $(TARGET_XLDFLAGS) $(TARGET_FLAGS) $(TARGET_LDFLAGS)
 TARGET_ASHLDFLAGS= $(LDOPTIONS) $(TARGET_XSHLDFLAGS) $(TARGET_FLAGS) $(TARGET_SHLDFLAGS)
 TARGET_ALIBS= $(TARGET_XLIBS) $(LIBS) $(TARGET_LIBS)
 
 TARGET_TESTARCH=$(shell $(TARGET_CC) $(TARGET_TCFLAGS) -E lj_arch.h -dM)
 ifneq (,$(findstring LJ_TARGET_X64 ,$(TARGET_TESTARCH)))
-  TARGET_CCARCH= x64
-  TARGET_XCFLAGS+= $(CCOPT_X64)
+  TARGET_LJARCH= x64
 else
 ifneq (,$(findstring LJ_TARGET_X86 ,$(TARGET_TESTARCH)))
-  TARGET_CCARCH= x86
-  TARGET_XCFLAGS+= $(CCOPT_X86)
+  TARGET_LJARCH= x86
 else
 ifneq (,$(findstring LJ_TARGET_ARM ,$(TARGET_TESTARCH)))
-  TARGET_CCARCH= arm
-  TARGET_XCFLAGS+= $(CCOPT_ARM)
+  TARGET_LJARCH= arm
 else
 ifneq (,$(findstring LJ_TARGET_PPC ,$(TARGET_TESTARCH)))
-  TARGET_CCARCH= ppc
-  TARGET_XCFLAGS+= $(CCOPT_PPC)
+  TARGET_LJARCH= ppc
 else
 ifneq (,$(findstring LJ_TARGET_PPCSPE ,$(TARGET_TESTARCH)))
-  TARGET_CCARCH= ppcspe
-  TARGET_XCFLAGS+= $(CCOPT_PPCSPE)
+  TARGET_LJARCH= ppcspe
 else
 ifneq (,$(findstring LJ_TARGET_MIPS ,$(TARGET_TESTARCH)))
   ifneq (,$(findstring MIPSEL ,$(TARGET_TESTARCH)))
     TARGET_ARCH= -D__MIPSEL__=1
   endif
-  TARGET_CCARCH= mips
-  TARGET_XCFLAGS+= $(CCOPT_MIPS)
+  TARGET_LJARCH= mips
 else
   $(error Unsupported target architecture)
 endif
@@ -256,7 +235,17 @@ endif
 endif
 endif
 
-TARGET_ARCH+= $(patsubst %,-DLUAJIT_TARGET=LUAJIT_ARCH_%,$(TARGET_CCARCH))
+ifneq (,$(findstring LJ_TARGET_PS3 1,$(TARGET_TESTARCH)))
+  TARGET_SYS= PS3
+  TARGET_ARCH+= -D__CELLOS_LV2__
+  TARGET_XCFLAGS+= -DLUAJIT_USE_SYSMALLOC
+endif
+ifneq (,$(findstring LJ_NO_UNWIND 1,$(TARGET_TESTARCH)))
+  TARGET_ARCH+= -DLUAJIT_NO_UNWIND
+endif
+
+TARGET_XCFLAGS+= $(CCOPT_$(TARGET_LJARCH))
+TARGET_ARCH+= $(patsubst %,-DLUAJIT_TARGET=LUAJIT_ARCH_%,$(TARGET_LJARCH))
 
 ifneq (,$(PREFIX))
 ifneq (/usr/local,$(PREFIX))
@@ -271,19 +260,22 @@ endif
 # System detection.
 ##############################################################################
 
-ifneq (,$(findstring Windows,$(OS)))
+ifeq (Windows,$(findstring Windows,$(OS))$(MSYSTEM)$(TERM))
   HOST_SYS= Windows
+  HOST_RM= del
 else
   HOST_SYS:= $(shell uname -s)
-  ifneq (,$(findstring CYGWIN,$(TARGET_SYS)))
+  ifneq (,$(findstring MINGW,$(HOST_SYS)))
     HOST_SYS= Windows
+    HOST_MSYS= mingw
+  endif
+  ifneq (,$(findstring CYGWIN,$(HOST_SYS)))
+    HOST_SYS= Windows
+    HOST_MSYS= cygwin
   endif
 endif
-ifeq (Windows,$(HOST_SYS))
-  HOST_RM= del
-endif
 
-TARGET_SYS= $(HOST_SYS)
+TARGET_SYS?= $(HOST_SYS)
 ifeq (Windows,$(TARGET_SYS))
   TARGET_STRIP+= --strip-unneeded
   TARGET_XSHLDFLAGS= -shared
@@ -299,7 +291,7 @@ ifeq (Darwin,$(TARGET_SYS))
   TARGET_XSHLDFLAGS= -dynamiclib -single_module -undefined dynamic_lookup -fPIC
   TARGET_DYNXLDOPTS=
   TARGET_XSHLDFLAGS+= -install_name $(TARGET_DYLIBPATH) -compatibility_version $(MAJVER).$(MINVER) -current_version $(MAJVER).$(MINVER).$(RELVER)
-  ifeq (x64,$(TARGET_CCARCH))
+  ifeq (x64,$(TARGET_LJARCH))
     TARGET_XLDFLAGS+= -pagezero_size 10000 -image_base 100000000
     TARGET_XSHLDFLAGS+= -image_base 7fff04c4a000
   endif
@@ -316,7 +308,9 @@ else
     TARGET_XCFLAGS+= -fno-stack-protector
   endif
   ifneq (SunOS,$(TARGET_SYS))
-    TARGET_XLDFLAGS+= -Wl,-E
+    ifneq (PS3,$(TARGET_SYS))
+      TARGET_XLDFLAGS+= -Wl,-E
+    endif
   endif
   ifeq (Linux,$(TARGET_SYS))
     TARGET_XLIBS+= -ldl
@@ -356,24 +350,91 @@ endif
 # Files and pathnames.
 ##############################################################################
 
+MINILUA_O= host/minilua.o
+MINILUA_LIBS= -lm
+MINILUA_T= host/minilua
+MINILUA_X= $(MINILUA_T)
+
+ifeq (,$(HOST_LUA))
+  HOST_LUA= $(MINILUA_X)
+  DASM_DEP= $(MINILUA_T)
+endif
+
 DASM_DIR= ../dynasm
 DASM= $(HOST_LUA) $(DASM_DIR)/dynasm.lua
-DASM_FLAGS=
-DASM_DISTFLAGS= -LN
-DASM_FLAGS_X86=
-DASM_FLAGS_X64= -D X64
-DASM_FLAGS_X64WIN= -D X64 -D X64WIN
-DASM_FLAGS_ARM=
-DASM_FLAGS_PPC=
-DASM_FLAGS_PPCSPE=
-DASM_FLAGS_MIPS=
+DASM_XFLAGS=
+DASM_AFLAGS=
+DASM_ARCH= $(TARGET_LJARCH)
 
-BUILDVM_O= buildvm.o buildvm_asm.o buildvm_peobj.o buildvm_lib.o buildvm_fold.o
-BUILDVM_T= buildvm
-BUILDVM_X= ./$(BUILDVM_T)
+ifneq (,$(findstring LJ_ARCH_BITS 64,$(TARGET_TESTARCH)))
+  DASM_AFLAGS+= -D P64
+endif
+ifneq (,$(findstring LJ_HASJIT 1,$(TARGET_TESTARCH)))
+  DASM_AFLAGS+= -D JIT
+endif
+ifneq (,$(findstring LJ_HASFFI 1,$(TARGET_TESTARCH)))
+  DASM_AFLAGS+= -D FFI
+endif
+ifneq (,$(findstring LJ_DUALNUM 1,$(TARGET_TESTARCH)))
+  DASM_AFLAGS+= -D DUALNUM
+endif
+ifneq (,$(findstring LJ_ARCH_HASFPU 1,$(TARGET_TESTARCH)))
+  DASM_AFLAGS+= -D FPU
+  TARGET_ARCH+= -DLJ_ARCH_HASFPU=1
+else
+  TARGET_ARCH+= -DLJ_ARCH_HASFPU=0
+endif
+ifeq (,$(findstring LJ_ABI_SOFTFP 1,$(TARGET_TESTARCH)))
+  DASM_AFLAGS+= -D HFABI
+  TARGET_ARCH+= -DLJ_ABI_SOFTFP=0
+else
+  TARGET_ARCH+= -DLJ_ABI_SOFTFP=1
+endif
+DASM_AFLAGS+= -D VER=$(subst LJ_ARCH_VERSION_,,$(filter LJ_ARCH_VERSION_%,$(subst LJ_ARCH_VERSION ,LJ_ARCH_VERSION_,$(TARGET_TESTARCH))))
+ifeq (Windows,$(TARGET_SYS))
+  DASM_AFLAGS+= -D WIN
+endif
+ifeq (x86,$(TARGET_LJARCH))
+  ifneq (,$(findstring __SSE2__ 1,$(TARGET_TESTARCH)))
+    DASM_AFLAGS+= -D SSE
+  endif
+else
+ifeq (x64,$(TARGET_LJARCH))
+  DASM_ARCH= x86
+else
+ifeq (arm,$(TARGET_LJARCH))
+  ifeq (iOS,$(TARGET_SYS))
+    DASM_AFLAGS+= -D IOS
+  endif
+else
+ifeq (ppc,$(TARGET_LJARCH))
+  ifneq (,$(findstring LJ_ARCH_SQRT 1,$(TARGET_TESTARCH)))
+    DASM_AFLAGS+= -D SQRT
+  endif
+  ifneq (,$(findstring LJ_ARCH_ROUND 1,$(TARGET_TESTARCH)))
+    DASM_AFLAGS+= -D ROUND
+  endif
+  ifneq (,$(findstring LJ_ARCH_PPC64 1,$(TARGET_TESTARCH)))
+    DASM_AFLAGS+= -D GPR64
+  endif
+  ifeq (PS3,$(TARGET_SYS))
+    DASM_AFLAGS+= -D PPE -D TOC
+  endif
+endif
+endif
+endif
+endif
 
-HOST_O= $(BUILDVM_O)
-HOST_T= $(BUILDVM_T)
+DASM_FLAGS= $(DASM_XFLAGS) $(DASM_AFLAGS)
+DASM_DASC= vm_$(DASM_ARCH).dasc
+
+BUILDVM_O= host/buildvm.o host/buildvm_asm.o host/buildvm_peobj.o \
+	   host/buildvm_lib.o host/buildvm_fold.o
+BUILDVM_T= host/buildvm
+BUILDVM_X= $(BUILDVM_T)
+
+HOST_O= $(MINILUA_O) $(BUILDVM_O)
+HOST_T= $(MINILUA_T) $(BUILDVM_T)
 
 LJVM_S= lj_vm.s
 LJVM_O= lj_vm.o
@@ -386,10 +447,10 @@ LJLIB_C= $(LJLIB_O:.o=.c)
 
 LJCORE_O= lj_gc.o lj_err.o lj_char.o lj_bc.o lj_obj.o \
 	  lj_str.o lj_tab.o lj_func.o lj_udata.o lj_meta.o lj_debug.o \
-	  lj_state.o lj_dispatch.o lj_vmevent.o lj_vmmath.o lj_api.o \
-	  lj_lex.o lj_parse.o lj_bcread.o lj_bcwrite.o \
+	  lj_state.o lj_dispatch.o lj_vmevent.o lj_vmmath.o lj_strscan.o \
+	  lj_api.o lj_lex.o lj_parse.o lj_bcread.o lj_bcwrite.o lj_load.o \
 	  lj_ir.o lj_opt_mem.o lj_opt_fold.o lj_opt_narrow.o \
-	  lj_opt_dce.o lj_opt_loop.o lj_opt_split.o \
+	  lj_opt_dce.o lj_opt_loop.o lj_opt_split.o lj_opt_sink.o \
 	  lj_mcode.o lj_snap.o lj_record.o lj_crecord.o lj_ffrecord.o \
 	  lj_asm.o lj_trace.o lj_gdbjit.o \
 	  lj_ctype.o lj_cdata.o lj_cconv.o lj_ccall.o lj_ccallback.o \
@@ -400,7 +461,7 @@ LJCORE_O= lj_gc.o lj_err.o lj_char.o lj_bc.o lj_obj.o \
 LJVMCORE_O= $(LJVM_O) $(LJCORE_O)
 LJVMCORE_DYNO= $(LJVMCORE_O:.o=_dyn.o)
 
-LIB_VMDEF= ../lib/vmdef.lua
+LIB_VMDEF= jit/vmdef.lua
 LIB_VMDEFP= $(LIB_VMDEF)
 
 LUAJIT_O= luajit.o
@@ -408,13 +469,12 @@ LUAJIT_A= libluajit.a
 LUAJIT_SO= libluajit.so
 LUAJIT_T= luajit
 
-ALL_T= $(LUAJIT_T) $(LUAJIT_A) $(LUAJIT_SO) $(BUILDVM_T)
-ALL_HDRGEN= lj_bcdef.h lj_ffdef.h lj_libdef.h lj_recdef.h lj_folddef.h
+ALL_T= $(LUAJIT_T) $(LUAJIT_A) $(LUAJIT_SO) $(HOST_T)
+ALL_HDRGEN= lj_bcdef.h lj_ffdef.h lj_libdef.h lj_recdef.h lj_folddef.h \
+	    host/buildvm_arch.h
 ALL_GEN= $(LJVM_S) $(ALL_HDRGEN) $(LIB_VMDEFP)
-ALL_DYNGEN= buildvm_x86.h buildvm_x64.h buildvm_x64win.h buildvm_arm.h \
-	    buildvm_ppc.h buildvm_ppcspe.h buildvm_mips.h
 WIN_RM= *.obj *.lib *.exp *.dll *.exe *.manifest *.pdb *.ilk
-ALL_RM= $(ALL_T) $(ALL_GEN) *.o $(WIN_RM)
+ALL_RM= $(ALL_T) $(ALL_GEN) *.o host/*.o $(WIN_RM)
 
 ##############################################################################
 # Build mode handling.
@@ -425,15 +485,15 @@ TARGET_O= $(LUAJIT_A)
 TARGET_T= $(LUAJIT_T) $(LUAJIT_SO)
 TARGET_DEP= $(LIB_VMDEF) $(LUAJIT_SO)
 
-ifeq (Windows,$(HOST_SYS))
-  BUILDVM_T= buildvm.exe
-  LIB_VMDEFP= $(subst /,\\,$(LIB_VMDEF))
-endif
 ifeq (Windows,$(TARGET_SYS))
   TARGET_DYNCC= $(STATIC_CC)
   LJVM_MODE= coffasm
-  LUAJIT_SO= $(TARGET_DLLNAME)
   LUAJIT_T= luajit.exe
+  ifeq (cygwin,$(HOST_MSYS))
+    LUAJIT_SO= cyg$(TARGET_DLLNAME)
+  else
+    LUAJIT_SO= $(TARGET_DLLNAME)
+  endif
   # Mixed mode is not supported on Windows. And static mode doesn't work well.
   # C modules cannot be loaded, because they bind to lua51.dll.
   ifneq (static,$(BUILDMODE))
@@ -449,6 +509,19 @@ ifeq (iOS,$(TARGET_SYS))
 endif
 ifeq (SunOS,$(TARGET_SYS))
   BUILDMODE= static
+endif
+ifeq (PS3,$(TARGET_SYS))
+  BUILDMODE= static
+endif
+
+ifeq (Windows,$(HOST_SYS))
+  MINILUA_T= host/minilua.exe
+  BUILDVM_T= host/buildvm.exe
+  ifeq (,$(HOST_MSYS))
+    MINILUA_X= host\minilua
+    BUILDVM_X= host\buildvm
+    ALL_RM:= $(subst /,\,$(ALL_RM))
+  endif
 endif
 
 ifeq (static,$(BUILDMODE))
@@ -494,68 +567,35 @@ amalg:
 clean:
 	$(HOST_RM) $(ALL_RM)
 
-cleaner:
-	$(HOST_RM) $(ALL_RM) $(ALL_DYNGEN)
-
-distclean:	clean
-	$(E) "DYNASM    $@"
-	$(Q)$(DASM) $(DASM_DISTFLAGS) $(DASM_FLAGS_X86) -o buildvm_x86.h buildvm_x86.dasc
-	$(Q)$(DASM) $(DASM_DISTFLAGS) $(DASM_FLAGS_X64) -o buildvm_x64.h buildvm_x86.dasc
-	$(Q)$(DASM) $(DASM_DISTFLAGS) $(DASM_FLAGS_X64WIN) -o buildvm_x64win.h buildvm_x86.dasc
-	$(Q)$(DASM) $(DASM_DISTFLAGS) $(DASM_FLAGS_ARM) -o buildvm_arm.h buildvm_arm.dasc
-	$(Q)$(DASM) $(DASM_DISTFLAGS) $(DASM_FLAGS_PPC) -o buildvm_ppc.h buildvm_ppc.dasc
-	$(Q)$(DASM) $(DASM_DISTFLAGS) $(DASM_FLAGS_PPCSPE) -o buildvm_ppcspe.h buildvm_ppcspe.dasc
-	$(Q)$(DASM) $(DASM_DISTFLAGS) $(DASM_FLAGS_MIPS) -o buildvm_mips.h buildvm_mips.dasc
-
 depend:
-	@for file in $(ALL_HDRGEN) $(ALL_DYNGEN); do \
+	@for file in $(ALL_HDRGEN); do \
 	  test -f $$file || touch $$file; \
 	  done
-	@$(HOST_CC) $(HOST_ACFLAGS) -MM *.c | \
+	@$(HOST_CC) $(HOST_ACFLAGS) -MM *.c host/*.c | \
 	  sed -e "s| [^ ]*/dasm_\S*\.h||g" \
-	      -e "s| buildvm_\S*\.h||g" \
+	      -e "s|^\([^l ]\)|host/\1|" \
 	      -e "s| lj_target_\S*\.h| lj_target_*.h|g" \
 	      -e "s| lj_emit_\S*\.h| lj_emit_*.h|g" \
 	      -e "s| lj_asm_\S*\.h| lj_asm_*.h|g" >Makefile.dep
-	@for file in $(ALL_HDRGEN) $(ALL_DYNGEN); do \
+	@for file in $(ALL_HDRGEN); do \
 	  test -s $$file || $(HOST_RM) $$file; \
 	  done
 
-.PHONY: default all amalg clean cleaner distclean depend
+.PHONY: default all amalg clean depend
 
 ##############################################################################
 # Rules for generated files.
 ##############################################################################
 
-buildvm_x86.h: buildvm_x86.dasc
-	$(E) "DYNASM    $@"
-	$(Q)$(DASM) $(DASM_FLAGS) $(DASM_FLAGS_X86) -o $@ buildvm_x86.dasc
+$(MINILUA_T): $(MINILUA_O)
+	$(E) "HOSTLINK  $@"
+	$(Q)$(HOST_CC) $(HOST_ALDFLAGS) -o $@ $(MINILUA_O) $(MINILUA_LIBS) $(HOST_ALIBS)
 
-buildvm_x64.h: buildvm_x86.dasc
+host/buildvm_arch.h: $(DASM_DASC) $(DASM_DEP)
 	$(E) "DYNASM    $@"
-	$(Q)$(DASM) $(DASM_FLAGS) $(DASM_FLAGS_X64) -o $@ buildvm_x86.dasc
+	$(Q)$(DASM) $(DASM_FLAGS) -o $@ $(DASM_DASC)
 
-buildvm_x64win.h: buildvm_x86.dasc
-	$(E) "DYNASM    $@"
-	$(Q)$(DASM) $(DASM_FLAGS) $(DASM_FLAGS_X64WIN) -o $@ buildvm_x86.dasc
-
-buildvm_arm.h: buildvm_arm.dasc
-	$(E) "DYNASM    $@"
-	$(Q)$(DASM) $(DASM_FLAGS) $(DASM_FLAGS_ARM) -o $@ buildvm_arm.dasc
-
-buildvm_ppc.h: buildvm_ppc.dasc
-	$(E) "DYNASM    $@"
-	$(Q)$(DASM) $(DASM_FLAGS) $(DASM_FLAGS_PPC) -o $@ buildvm_ppc.dasc
-
-buildvm_ppcspe.h: buildvm_ppcspe.dasc
-	$(E) "DYNASM    $@"
-	$(Q)$(DASM) $(DASM_FLAGS) $(DASM_FLAGS_PPCSPE) -o $@ buildvm_ppcspe.dasc
-
-buildvm_mips.h: buildvm_mips.dasc
-	$(E) "DYNASM    $@"
-	$(Q)$(DASM) $(DASM_FLAGS) $(DASM_FLAGS_MIPS) -o $@ buildvm_mips.dasc
-
-buildvm.o: $(ALL_DYNGEN) $(DASM_DIR)/dasm_*.h
+host/buildvm.o: $(DASM_DIR)/dasm_*.h
 
 $(BUILDVM_T): $(BUILDVM_O)
 	$(E) "HOSTLINK  $@"

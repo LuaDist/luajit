@@ -189,13 +189,29 @@ static TValue *debug_localname(lua_State *L, const lua_Debug *ar,
   TValue *nextframe = size ? frame + size : NULL;
   GCfunc *fn = frame_func(frame);
   BCPos pc = debug_framepc(L, fn, nextframe);
+  if (!nextframe) nextframe = L->top;
+  if ((int)slot1 < 0) {  /* Negative slot number is for varargs. */
+    if (pc != NO_BCPOS) {
+      GCproto *pt = funcproto(fn);
+      if ((pt->flags & PROTO_VARARG)) {
+	slot1 = pt->numparams + (BCReg)(-(int)slot1);
+	if (frame_isvarg(frame)) {  /* Vararg frame has been set up? (pc!=0) */
+	  nextframe = frame;
+	  frame = frame_prevd(frame);
+	}
+	if (frame + slot1 < nextframe) {
+	  *name = "(*vararg)";
+	  return frame+slot1;
+	}
+      }
+    }
+    return NULL;
+  }
   if (pc != NO_BCPOS &&
       (*name = debug_varname(funcproto(fn), pc, slot1-1)) != NULL)
     ;
-  else if (slot1 > 0 && frame + slot1 < (nextframe ? nextframe : L->top))
+  else if (slot1 > 0 && frame + slot1 < nextframe)
     *name = "(*temporary)";
-  else
-    *name = NULL;
   return frame+slot1;
 }
 
@@ -384,18 +400,22 @@ void lj_debug_pushloc(lua_State *L, GCproto *pt, BCPos pc)
 
 LUA_API const char *lua_getlocal(lua_State *L, const lua_Debug *ar, int n)
 {
-  const char *name;
-  TValue *o = debug_localname(L, ar, &name, (BCReg)n);
-  if (name) {
-    copyTV(L, L->top, o);
-    incr_top(L);
+  const char *name = NULL;
+  if (ar) {
+    TValue *o = debug_localname(L, ar, &name, (BCReg)n);
+    if (name) {
+      copyTV(L, L->top, o);
+      incr_top(L);
+    }
+  } else if (tvisfunc(L->top-1) && isluafunc(funcV(L->top-1))) {
+    name = debug_varname(funcproto(funcV(L->top-1)), 0, (BCReg)n-1);
   }
   return name;
 }
 
 LUA_API const char *lua_setlocal(lua_State *L, const lua_Debug *ar, int n)
 {
-  const char *name;
+  const char *name = NULL;
   TValue *o = debug_localname(L, ar, &name, (BCReg)n);
   if (name)
     copyTV(L, o, L->top-1);
@@ -403,9 +423,9 @@ LUA_API const char *lua_setlocal(lua_State *L, const lua_Debug *ar, int n)
   return name;
 }
 
-LUA_API int lua_getinfo(lua_State *L, const char *what, lua_Debug *ar)
+int lj_debug_getinfo(lua_State *L, const char *what, lj_Debug *ar, int ext)
 {
-  int status = 1;
+  int opt_f = 0, opt_L = 0;
   TValue *frame = NULL;
   TValue *nextframe = NULL;
   GCfunc *fn;
@@ -451,6 +471,16 @@ LUA_API int lua_getinfo(lua_State *L, const char *what, lua_Debug *ar)
       ar->currentline = frame ? debug_frameline(L, fn, nextframe) : -1;
     } else if (*what == 'u') {
       ar->nups = fn->c.nupvalues;
+      if (ext) {
+	if (isluafunc(fn)) {
+	  GCproto *pt = funcproto(fn);
+	  ar->nparams = pt->numparams;
+	  ar->isvararg = !!(pt->flags & PROTO_VARARG);
+	} else {
+	  ar->nparams = 0;
+	  ar->isvararg = 1;
+	}
+      }
     } else if (*what == 'n') {
       ar->namewhat = frame ? lj_debug_funcname(L, frame, &ar->name) : NULL;
       if (ar->namewhat == NULL) {
@@ -458,35 +488,46 @@ LUA_API int lua_getinfo(lua_State *L, const char *what, lua_Debug *ar)
 	ar->name = NULL;
       }
     } else if (*what == 'f') {
-      setfuncV(L, L->top, fn);
-      incr_top(L);
+      opt_f = 1;
     } else if (*what == 'L') {
-      if (isluafunc(fn)) {
-	GCtab *t = lj_tab_new(L, 0, 0);
-	GCproto *pt = funcproto(fn);
-	const void *lineinfo = proto_lineinfo(pt);
-	if (lineinfo) {
-	  BCLine first = pt->firstline;
-	  int sz = pt->numline < 256 ? 1 : pt->numline < 65536 ? 2 : 4;
-	  MSize i, szl = pt->sizebc-1;
-	  for (i = 0; i < szl; i++) {
-	    BCLine line = first +
-	      (sz == 1 ? (BCLine)((const uint8_t *)lineinfo)[i] :
-	       sz == 2 ? (BCLine)((const uint16_t *)lineinfo)[i] :
-	       (BCLine)((const uint32_t *)lineinfo)[i]);
-	    setboolV(lj_tab_setint(L, t, line), 1);
-	  }
-	}
-	settabV(L, L->top, t);
-      } else {
-	setnilV(L->top);
-      }
-      incr_top(L);
+      opt_L = 1;
     } else {
-      status = 0;  /* Bad option. */
+      return 0;  /* Bad option. */
     }
   }
-  return status;
+  if (opt_f) {
+    setfuncV(L, L->top, fn);
+    incr_top(L);
+  }
+  if (opt_L) {
+    if (isluafunc(fn)) {
+      GCtab *t = lj_tab_new(L, 0, 0);
+      GCproto *pt = funcproto(fn);
+      const void *lineinfo = proto_lineinfo(pt);
+      if (lineinfo) {
+	BCLine first = pt->firstline;
+	int sz = pt->numline < 256 ? 1 : pt->numline < 65536 ? 2 : 4;
+	MSize i, szl = pt->sizebc-1;
+	for (i = 0; i < szl; i++) {
+	  BCLine line = first +
+	    (sz == 1 ? (BCLine)((const uint8_t *)lineinfo)[i] :
+	     sz == 2 ? (BCLine)((const uint16_t *)lineinfo)[i] :
+	     (BCLine)((const uint32_t *)lineinfo)[i]);
+	  setboolV(lj_tab_setint(L, t, line), 1);
+	}
+      }
+      settabV(L, L->top, t);
+    } else {
+      setnilV(L->top);
+    }
+    incr_top(L);
+  }
+  return 1;  /* Ok. */
+}
+
+LUA_API int lua_getinfo(lua_State *L, const char *what, lua_Debug *ar)
+{
+  return lj_debug_getinfo(L, what, (lj_Debug *)ar, 0);
 }
 
 LUA_API int lua_getstack(lua_State *L, int level, lua_Debug *ar)
@@ -500,5 +541,56 @@ LUA_API int lua_getstack(lua_State *L, int level, lua_Debug *ar)
     ar->i_ci = level - size;
     return 0;
   }
+}
+
+/* Number of frames for the leading and trailing part of a traceback. */
+#define TRACEBACK_LEVELS1	12
+#define TRACEBACK_LEVELS2	10
+
+LUALIB_API void luaL_traceback (lua_State *L, lua_State *L1, const char *msg,
+				int level)
+{
+  int top = (int)(L->top - L->base);
+  int lim = TRACEBACK_LEVELS1;
+  lua_Debug ar;
+  if (msg) lua_pushfstring(L, "%s\n", msg);
+  lua_pushliteral(L, "stack traceback:");
+  while (lua_getstack(L1, level++, &ar)) {
+    GCfunc *fn;
+    if (level > lim) {
+      if (!lua_getstack(L1, level + TRACEBACK_LEVELS2, &ar)) {
+	level--;
+      } else {
+	lua_pushliteral(L, "\n\t...");
+	lua_getstack(L1, -10, &ar);
+	level = ar.i_ci - TRACEBACK_LEVELS2;
+      }
+      lim = 2147483647;
+      continue;
+    }
+    lua_getinfo(L1, "Snlf", &ar);
+    fn = funcV(L1->top-1); L1->top--;
+    if (isffunc(fn) && !*ar.namewhat)
+      lua_pushfstring(L, "\n\t[builtin#%d]:", fn->c.ffid);
+    else
+      lua_pushfstring(L, "\n\t%s:", ar.short_src);
+    if (ar.currentline > 0)
+      lua_pushfstring(L, "%d:", ar.currentline);
+    if (*ar.namewhat) {
+      lua_pushfstring(L, " in function " LUA_QS, ar.name);
+    } else {
+      if (*ar.what == 'm') {
+	lua_pushliteral(L, " in main chunk");
+      } else if (*ar.what == 'C') {
+	lua_pushfstring(L, " at %p", fn->c.f);
+      } else {
+	lua_pushfstring(L, " in function <%s:%d>",
+			ar.short_src, ar.linedefined);
+      }
+    }
+    if ((int)(L->top - L->base) - top >= 15)
+      lua_concat(L, (int)(L->top - L->base) - top);
+  }
+  lua_concat(L, (int)(L->top - L->base) - top);
 }
 

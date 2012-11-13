@@ -86,7 +86,7 @@ void lj_dispatch_init_hotcount(global_State *g)
 #define DISPMODE_REC	0x02	/* Recording active. */
 #define DISPMODE_INS	0x04	/* Override instruction dispatch. */
 #define DISPMODE_CALL	0x08	/* Override call dispatch. */
-#define DISPMODE_RET	0x08	/* Override return dispatch. */
+#define DISPMODE_RET	0x10	/* Override return dispatch. */
 
 /* Update dispatch table depending on various flags. */
 void lj_dispatch_update(global_State *g)
@@ -167,7 +167,7 @@ void lj_dispatch_update(global_State *g)
     /* Set dynamic call dispatch. */
     if ((oldmode ^ mode) & DISPMODE_CALL) {  /* Update the whole table? */
       uint32_t i;
-      if ((mode & 8) == 0) {  /* No call hooks? */
+      if ((mode & DISPMODE_CALL) == 0) {  /* No call hooks? */
 	for (i = GG_LEN_SDISP; i < GG_LEN_DDISP; i++)
 	  disp[i] = makeasmfunc(lj_bc_ofs[i]);
       } else {
@@ -392,8 +392,12 @@ void LJ_FASTCALL lj_dispatch_ins(lua_State *L, const BCIns *pc)
   {
     jit_State *J = G2J(g);
     if (J->state != LJ_TRACE_IDLE) {
+#ifdef LUA_USE_ASSERT
+      ptrdiff_t delta = L->top - L->base;
+#endif
       J->L = L;
       lj_trace_ins(J, pc-1);  /* The interpreter bytecode PC is offset by 1. */
+      lua_assert(L->top - L->base == delta);
     }
   }
 #endif
@@ -448,8 +452,12 @@ ASMFunction LJ_FASTCALL lj_dispatch_call(lua_State *L, const BCIns *pc)
 #if LJ_HASJIT
   J->L = L;
   if ((uintptr_t)pc & 1) {  /* Marker for hot call. */
+#ifdef LUA_USE_ASSERT
+    ptrdiff_t delta = L->top - L->base;
+#endif
     pc = (const BCIns *)((uintptr_t)pc & ~(uintptr_t)1);
     lj_trace_hot(J, pc);
+    lua_assert(L->top - L->base == delta);
     goto out;
   } else if (J->state != LJ_TRACE_IDLE &&
 	     !(g->hookmask & (HOOK_GC|HOOK_VMEVENT))) {

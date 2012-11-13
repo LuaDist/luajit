@@ -14,7 +14,9 @@
 #include "lualib.h"
 
 #include "lj_obj.h"
+#include "lj_gc.h"
 #include "lj_err.h"
+#include "lj_debug.h"
 #include "lj_lib.h"
 
 /* ------------------------------------------------------------------------ */
@@ -41,7 +43,9 @@ LJLIB_CF(debug_setmetatable)
   lj_lib_checktabornil(L, 2);
   L->top = L->base+2;
   lua_setmetatable(L, 1);
+#if !LJ_52
   setboolV(L->top-1, 1);
+#endif
   return 1;
 }
 
@@ -75,6 +79,12 @@ static void settabsi(lua_State *L, const char *i, int v)
   lua_setfield(L, -2, i);
 }
 
+static void settabsb(lua_State *L, const char *i, int v)
+{
+  lua_pushboolean(L, v);
+  lua_setfield(L, -2, i);
+}
+
 static lua_State *getthread(lua_State *L, int *arg)
 {
   if (L->base < L->top && tvisthread(L->base)) {
@@ -99,12 +109,12 @@ static void treatstackoption(lua_State *L, lua_State *L1, const char *fname)
 
 LJLIB_CF(debug_getinfo)
 {
-  lua_Debug ar;
-  int arg;
+  lj_Debug ar;
+  int arg, opt_f = 0, opt_L = 0;
   lua_State *L1 = getthread(L, &arg);
   const char *options = luaL_optstring(L, arg+2, "flnSu");
   if (lua_isnumber(L, arg+1)) {
-    if (!lua_getstack(L1, (int)lua_tointeger(L, arg+1), &ar)) {
+    if (!lua_getstack(L1, (int)lua_tointeger(L, arg+1), (lua_Debug *)&ar)) {
       setnilV(L->top-1);
       return 1;
     }
@@ -114,29 +124,38 @@ LJLIB_CF(debug_getinfo)
   } else {
     lj_err_arg(L, arg+1, LJ_ERR_NOFUNCL);
   }
-  if (!lua_getinfo(L1, options, &ar))
+  if (!lj_debug_getinfo(L1, options, &ar, 1))
     lj_err_arg(L, arg+2, LJ_ERR_INVOPT);
-  lua_createtable(L, 0, 16);
-  if (strchr(options, 'S')) {
-    settabss(L, "source", ar.source);
-    settabss(L, "short_src", ar.short_src);
-    settabsi(L, "linedefined", ar.linedefined);
-    settabsi(L, "lastlinedefined", ar.lastlinedefined);
-    settabss(L, "what", ar.what);
+  lua_createtable(L, 0, 16);  /* Create result table. */
+  for (; *options; options++) {
+    switch (*options) {
+    case 'S':
+      settabss(L, "source", ar.source);
+      settabss(L, "short_src", ar.short_src);
+      settabsi(L, "linedefined", ar.linedefined);
+      settabsi(L, "lastlinedefined", ar.lastlinedefined);
+      settabss(L, "what", ar.what);
+      break;
+    case 'l':
+      settabsi(L, "currentline", ar.currentline);
+      break;
+    case 'u':
+      settabsi(L, "nups", ar.nups);
+      settabsi(L, "nparams", ar.nparams);
+      settabsb(L, "isvararg", ar.isvararg);
+      break;
+    case 'n':
+      settabss(L, "name", ar.name);
+      settabss(L, "namewhat", ar.namewhat);
+      break;
+    case 'f': opt_f = 1; break;
+    case 'L': opt_L = 1; break;
+    default: break;
+    }
   }
-  if (strchr(options, 'l'))
-    settabsi(L, "currentline", ar.currentline);
-  if (strchr(options, 'u'))
-    settabsi(L, "nups", ar.nups);
-  if (strchr(options, 'n')) {
-    settabss(L, "name", ar.name);
-    settabss(L, "namewhat", ar.namewhat);
-  }
-  if (strchr(options, 'L'))
-    treatstackoption(L, L1, "activelines");
-  if (strchr(options, 'f'))
-    treatstackoption(L, L1, "func");
-  return 1;  /* return table */
+  if (opt_L) treatstackoption(L, L1, "activelines");
+  if (opt_f) treatstackoption(L, L1, "func");
+  return 1;  /* Return result table. */
 }
 
 LJLIB_CF(debug_getlocal)
@@ -145,9 +164,15 @@ LJLIB_CF(debug_getlocal)
   lua_State *L1 = getthread(L, &arg);
   lua_Debug ar;
   const char *name;
+  int slot = lj_lib_checkint(L, arg+2);
+  if (tvisfunc(L->base+arg)) {
+    L->top = L->base+arg+1;
+    lua_pushstring(L, lua_getlocal(L, NULL, slot));
+    return 1;
+  }
   if (!lua_getstack(L1, lj_lib_checkint(L, arg+1), &ar))
     lj_err_arg(L, arg+1, LJ_ERR_LVLRNG);
-  name = lua_getlocal(L1, &ar, lj_lib_checkint(L, arg+2));
+  name = lua_getlocal(L1, &ar, slot);
   if (name) {
     lua_xmove(L1, L, 1);
     lua_pushstring(L, name);
@@ -176,15 +201,15 @@ LJLIB_CF(debug_setlocal)
 static int debug_getupvalue(lua_State *L, int get)
 {
   int32_t n = lj_lib_checkint(L, 2);
-  if (isluafunc(lj_lib_checkfunc(L, 1))) {
-    const char *name = get ? lua_getupvalue(L, 1, n) : lua_setupvalue(L, 1, n);
-    if (name) {
-      lua_pushstring(L, name);
-      if (!get) return 1;
-      copyTV(L, L->top, L->top-2);
-      L->top++;
-      return 2;
-    }
+  const char *name;
+  lj_lib_checkfunc(L, 1);
+  name = get ? lua_getupvalue(L, 1, n) : lua_setupvalue(L, 1, n);
+  if (name) {
+    lua_pushstring(L, name);
+    if (!get) return 1;
+    copyTV(L, L->top, L->top-2);
+    L->top++;
+    return 2;
   }
   return 0;
 }
@@ -199,6 +224,62 @@ LJLIB_CF(debug_setupvalue)
   lj_lib_checkany(L, 3);
   return debug_getupvalue(L, 0);
 }
+
+LJLIB_CF(debug_upvalueid)
+{
+  GCfunc *fn = lj_lib_checkfunc(L, 1);
+  int32_t n = lj_lib_checkint(L, 2) - 1;
+  if ((uint32_t)n >= fn->l.nupvalues)
+    lj_err_arg(L, 2, LJ_ERR_IDXRNG);
+  setlightudV(L->top-1, isluafunc(fn) ? (void *)gcref(fn->l.uvptr[n]) :
+					(void *)&fn->c.upvalue[n]);
+  return 1;
+}
+
+LJLIB_CF(debug_upvaluejoin)
+{
+  GCfunc *fn[2];
+  GCRef *p[2];
+  int i;
+  for (i = 0; i < 2; i++) {
+    int32_t n;
+    fn[i] = lj_lib_checkfunc(L, 2*i+1);
+    if (!isluafunc(fn[i]))
+      lj_err_arg(L, 2*i+1, LJ_ERR_NOLFUNC);
+    n = lj_lib_checkint(L, 2*i+2) - 1;
+    if ((uint32_t)n >= fn[i]->l.nupvalues)
+      lj_err_arg(L, 2*i+2, LJ_ERR_IDXRNG);
+    p[i] = &fn[i]->l.uvptr[n];
+  }
+  setgcrefr(*p[0], *p[1]);
+  lj_gc_objbarrier(L, fn[0], gcref(*p[1]));
+  return 0;
+}
+
+#if LJ_52
+LJLIB_CF(debug_getuservalue)
+{
+  TValue *o = L->base;
+  if (o < L->top && tvisudata(o))
+    settabV(L, o, tabref(udataV(o)->env));
+  else
+    setnilV(o);
+  L->top = o+1;
+  return 1;
+}
+
+LJLIB_CF(debug_setuservalue)
+{
+  TValue *o = L->base;
+  if (!(o < L->top && tvisudata(o)))
+    lj_err_argt(L, 1, LUA_TUSERDATA);
+  if (!(o+1 < L->top && tvistab(o+1)))
+    lj_err_argt(L, 2, LUA_TTABLE);
+  L->top = o+2;
+  lua_setfenv(L, 1);
+  return 1;
+}
+#endif
 
 /* ------------------------------------------------------------------------ */
 
@@ -302,55 +383,13 @@ LJLIB_CF(debug_debug)
 
 LJLIB_CF(debug_traceback)
 {
-  int level;
-  int firstpart = 1;  /* still before eventual `...' */
   int arg;
   lua_State *L1 = getthread(L, &arg);
-  lua_Debug ar;
-  if (lua_isnumber(L, arg+2)) {
-    level = (int)lua_tointeger(L, arg+2);
-    lua_pop(L, 1);
-  }
+  const char *msg = lua_tostring(L, arg+1);
+  if (msg == NULL && L->top > L->base+arg)
+    L->top = L->base+arg+1;
   else
-    level = (L == L1) ? 1 : 0;  /* level 0 may be this own function */
-  if (lua_gettop(L) == arg)
-    lua_pushliteral(L, "");
-  else if (!lua_isstring(L, arg+1)) return 1;  /* message is not a string */
-  else lua_pushliteral(L, "\n");
-  lua_pushliteral(L, "stack traceback:");
-  while (lua_getstack(L1, level++, &ar)) {
-    if (level > LEVELS1 && firstpart) {
-      /* no more than `LEVELS2' more levels? */
-      if (!lua_getstack(L1, level+LEVELS2, &ar)) {
-	level--;  /* keep going */
-      } else {
-	lua_pushliteral(L, "\n\t...");  /* too many levels */
-	/* This only works with LuaJIT 2.x. Avoids O(n^2) behaviour. */
-	lua_getstack(L1, -10, &ar);
-	level = ar.i_ci - LEVELS2;
-      }
-      firstpart = 0;
-      continue;
-    }
-    lua_pushliteral(L, "\n\t");
-    lua_getinfo(L1, "Snl", &ar);
-    lua_pushfstring(L, "%s:", ar.short_src);
-    if (ar.currentline > 0)
-      lua_pushfstring(L, "%d:", ar.currentline);
-    if (*ar.namewhat != '\0') {  /* is there a name? */
-      lua_pushfstring(L, " in function " LUA_QS, ar.name);
-    } else {
-      if (*ar.what == 'm')  /* main? */
-	lua_pushfstring(L, " in main chunk");
-      else if (*ar.what == 'C' || *ar.what == 't')
-	lua_pushliteral(L, " ?");  /* C function or tail call */
-      else
-	lua_pushfstring(L, " in function <%s:%d>",
-			ar.short_src, ar.linedefined);
-    }
-    lua_concat(L, lua_gettop(L) - arg);
-  }
-  lua_concat(L, lua_gettop(L) - arg);
+    luaL_traceback(L, L1, msg, lj_lib_optint(L, arg+2, (L == L1)));
   return 1;
 }
 

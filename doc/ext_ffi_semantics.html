@@ -11,8 +11,7 @@
 <style type="text/css">
 table.convtable { line-height: 1.2; }
 tr.convhead td { font-weight: bold; }
-td.convin { width: 11em; }
-td.convop { font-style: italic; width: 16em; }
+td.convop { font-style: italic; width: 40%; }
 </style>
 </head>
 <body>
@@ -26,6 +25,8 @@ td.convop { font-style: italic; width: 16em; }
 <ul><li>
 <a href="luajit.html">LuaJIT</a>
 <ul><li>
+<a href="http://luajit.org/download.html">Download <span class="ext">&raquo;</span></a>
+</li><li>
 <a href="install.html">Installation</a>
 </li><li>
 <a href="running.html">Running</a>
@@ -56,7 +57,7 @@ td.convop { font-style: italic; width: 16em; }
 </li><li>
 <a href="http://luajit.org/performance.html">Performance <span class="ext">&raquo;</span></a>
 </li><li>
-<a href="http://luajit.org/download.html">Download <span class="ext">&raquo;</span></a>
+<a href="http://wiki.luajit.org/">Wiki <span class="ext">&raquo;</span></a>
 </li><li>
 <a href="http://luajit.org/list.html">Mailing List <span class="ext">&raquo;</span></a>
 </li></ul>
@@ -80,12 +81,6 @@ hurt to skim this page, but most of the semantics "just work" as you'd
 expect them to work. It should be straightforward to write
 applications using the LuaJIT FFI for developers with a C or C++
 background.
-</p>
-<p class="indent" style="color: #c00000;">
-Please note: this doesn't comprise the final specification for the FFI
-semantics, yet. Some semantics may need to be changed, based on your
-feedback. Please <a href="contact.html">report</a> any problems you may
-encounter or any improvements you'd like to see &mdash; thank you!
 </p>
 
 <h2 id="clang">C Language Support</h2>
@@ -153,7 +148,7 @@ VLA).</li>
 <li>GCC <tt>__attribute__</tt> with the following attributes:
 <tt>aligned</tt>, <tt>packed</tt>, <tt>mode</tt>,
 <tt>vector_size</tt>, <tt>cdecl</tt>, <tt>fastcall</tt>,
-<tt>stdcall</tt>.</li>
+<tt>stdcall</tt>, <tt>thiscall</tt>.</li>
 
 <li>The GCC <tt>__extension__</tt> keyword and the GCC
 <tt>__alignof__</tt> operator.</li>
@@ -165,8 +160,8 @@ function declarations.</li>
 <tt>__int16</tt>, <tt>__int32</tt> and <tt>__int64</tt>.</li>
 
 <li>MSVC <tt>__cdecl</tt>, <tt>__fastcall</tt>, <tt>__stdcall</tt>,
-<tt>__ptr32</tt>, <tt>__ptr64</tt>, <tt>__declspec(align(n))</tt>
-and <tt>#pragma&nbsp;pack</tt>.</li>
+<tt>__thiscall</tt>, <tt>__ptr32</tt>, <tt>__ptr64</tt>,
+<tt>__declspec(align(n))</tt> and <tt>#pragma&nbsp;pack</tt>.</li>
 
 <li>All other GCC/MSVC-specific attributes are ignored.</li>
 
@@ -190,8 +185,8 @@ a <tt>typedef</tt>, except re-declarations will be ignored):
 
 </ul>
 <p>
-You're encouraged to use these types in preference to the
-compiler-specific extensions or the target-dependent standard types.
+You're encouraged to use these types in preference to
+compiler-specific extensions or target-dependent standard types.
 E.g. <tt>char</tt> differs in signedness and <tt>long</tt> differs in
 size, depending on the target architecture and platform ABI.
 </p>
@@ -248,19 +243,20 @@ constant values; retrieving return values from C&nbsp;calls:
 <tr class="even separate">
 <td class="convin"><tt>bool</tt></td><td class="convop">0 &rarr; <tt>false</tt>, otherwise <tt>true</tt></td><td class="convout">boolean</td></tr>
 <tr class="odd separate">
-<td class="convin">Complex number</td><td class="convop">boxed value</td><td class="convout">complex cdata</td></tr>
+<td class="convin"><tt>enum</tt></td><td class="convop">boxed value</td><td class="convout">enum cdata</td></tr>
 <tr class="even">
+<td class="convin">Complex number</td><td class="convop">boxed value</td><td class="convout">complex cdata</td></tr>
+<tr class="odd">
 <td class="convin">Vector</td><td class="convop">boxed value</td><td class="convout">vector cdata</td></tr>
-<tr class="odd">
+<tr class="even">
 <td class="convin">Pointer</td><td class="convop">boxed value</td><td class="convout">pointer cdata</td></tr>
-<tr class="even separate">
+<tr class="odd separate">
 <td class="convin">Array</td><td class="convop">boxed reference</td><td class="convout">reference cdata</td></tr>
-<tr class="odd">
+<tr class="even">
 <td class="convin"><tt>struct</tt>/<tt>union</tt></td><td class="convop">boxed reference</td><td class="convout">reference cdata</td></tr>
 </table>
 <p>
-Bitfields or <tt>enum</tt> types are treated like their underlying
-type.
+Bitfields are treated like their underlying type.
 </p>
 <p>
 Reference types are dereferenced <em>before</em> a conversion can take
@@ -289,22 +285,24 @@ arguments to C&nbsp;calls:
 <tr class="odd separate">
 <td class="convin">nil</td><td class="convop"><tt>NULL</tt> &rarr;</td><td class="convout"><tt>(void *)</tt></td></tr>
 <tr class="even">
-<td class="convin">userdata</td><td class="convop">userdata payload &rarr;</td><td class="convout"><tt>(void *)</tt></td></tr>
-<tr class="odd">
 <td class="convin">lightuserdata</td><td class="convop">lightuserdata address &rarr;</td><td class="convout"><tt>(void *)</tt></td></tr>
-<tr class="even separate">
-<td class="convin">string</td><td class="convop">match against <tt>enum</tt> constant</td><td class="convout"><tt>enum</tt></td></tr>
 <tr class="odd">
-<td class="convin">string</td><td class="convop">copy string data + zero-byte</td><td class="convout"><tt>int8_t[]</tt>, <tt>uint8_t[]</tt></td></tr>
+<td class="convin">userdata</td><td class="convop">userdata payload &rarr;</td><td class="convout"><tt>(void *)</tt></td></tr>
 <tr class="even">
-<td class="convin">string</td><td class="convop">string data &rarr;</td><td class="convout"><tt>const char[]</tt></td></tr>
+<td class="convin">io.* file</td><td class="convop">get FILE * handle &rarr;</td><td class="convout"><tt>(void *)</tt></td></tr>
 <tr class="odd separate">
-<td class="convin">function</td><td class="convop"><a href="#callback">create callback</a> &rarr;</td><td class="convout">C function type</td></tr>
-<tr class="even separate">
-<td class="convin">table</td><td class="convop"><a href="#init_table">table initializer</a></td><td class="convout">Array</td></tr>
+<td class="convin">string</td><td class="convop">match against <tt>enum</tt> constant</td><td class="convout"><tt>enum</tt></td></tr>
+<tr class="even">
+<td class="convin">string</td><td class="convop">copy string data + zero-byte</td><td class="convout"><tt>int8_t[]</tt>, <tt>uint8_t[]</tt></td></tr>
 <tr class="odd">
-<td class="convin">table</td><td class="convop"><a href="#init_table">table initializer</a></td><td class="convout"><tt>struct</tt>/<tt>union</tt></td></tr>
+<td class="convin">string</td><td class="convop">string data &rarr;</td><td class="convout"><tt>const char[]</tt></td></tr>
 <tr class="even separate">
+<td class="convin">function</td><td class="convop"><a href="#callback">create callback</a> &rarr;</td><td class="convout">C function type</td></tr>
+<tr class="odd separate">
+<td class="convin">table</td><td class="convop"><a href="#init_table">table initializer</a></td><td class="convout">Array</td></tr>
+<tr class="even">
+<td class="convin">table</td><td class="convop"><a href="#init_table">table initializer</a></td><td class="convout"><tt>struct</tt>/<tt>union</tt></td></tr>
+<tr class="odd separate">
 <td class="convin">cdata</td><td class="convop">cdata payload &rarr;</td><td class="convout">C type</td></tr>
 </table>
 <p>
@@ -464,8 +462,9 @@ C&nbsp;type</a>.</li>
 when a single initializer is given. Otherwise they are treated like
 regular arrays.</li>
 
-<li>Aggregate types (arrays and structs) accept either a single
-<a href="#init_table">table initializer</a> or a flat list of
+<li>Aggregate types (arrays and structs) accept either a single cdata
+initializer of the same type (copy constructor), a single
+<a href="#init_table">table initializer</a>, or a flat list of
 initializers.</li>
 
 <li>The elements of an array are initialized, starting at index zero.
@@ -586,8 +585,7 @@ ffi.new("struct nested", {x=1,y={2,3}}) --> x = 1, y.a = 2, y.b = 3
 <p>
 All of the standard Lua operators can be applied to cdata objects or a
 mix of a cdata object and another Lua object. The following list shows
-the valid combinations. All other combinations currently raise an
-error.
+the pre-defined operations.
 </p>
 <p>
 Reference types are dereferenced <em>before</em> performing each of
@@ -596,7 +594,9 @@ C&nbsp;type pointed to by the reference.
 </p>
 <p>
 The pre-defined operations are always tried first before deferring to a
-metamethod for a ctype (if defined).
+metamethod or index table (if any) for the corresponding ctype (except
+for <tt>__new</tt>). An error is raised if the metamethod lookup or
+index table lookup fails.
 </p>
 
 <h3 id="cdata_array">Indexing a cdata object</h3>
@@ -621,7 +621,9 @@ field value and <a href="#convert_tolua">converts it to a Lua
 object</a>. A write access <a href="#convert_fromlua">converts a Lua
 object to the field type</a> and stores the converted value to the
 field. An error is raised if a write access to a constant
-<tt>struct</tt>/<tt>union</tt> or a constant field is attempted.</li>
+<tt>struct</tt>/<tt>union</tt> or a constant field is attempted.
+Scoped enum constants or static constants are treated like a constant
+field.</li>
 
 <li><b>Indexing a complex number</b>: a complex number can be indexed
 either by a cdata number or a Lua number with the values 0 or 1, or by
@@ -640,24 +642,41 @@ assigning to an index of a vector raises an error.</li>
 
 </ul>
 <p>
+A ctype object can be indexed with a string key, too. The only
+pre-defined operation is reading scoped constants of
+<tt>struct</tt>/<tt>union</tt> types. All other accesses defer
+to the corresponding metamethods or index tables (if any).
+</p>
+<p>
 Note: since there's (deliberately) no address-of operator, a cdata
 object holding a value type is effectively immutable after
 initialization. The JIT compiler benefits from this fact when applying
 certain optimizations.
 </p>
 <p>
-As a consequence of this, the <em>elements</em> of complex numbers and
+As a consequence, the <em>elements</em> of complex numbers and
 vectors are immutable. But the elements of an aggregate holding these
 types <em>may</em> be modified of course. I.e. you cannot assign to
 <tt>foo.c.im</tt>, but you can assign a (newly created) complex number
 to <tt>foo.c</tt>.
+</p>
+<p>
+The JIT compiler implements strict aliasing rules: accesses to different
+types do <b>not</b> alias, except for differences in signedness (this
+applies even to <tt>char</tt> pointers, unlike C99). Type punning
+through unions is explicitly detected and allowed.
 </p>
 
 <h3 id="cdata_call">Calling a cdata object</h3>
 <ul>
 
 <li><b>Constructor</b>: a ctype object can be called and used as a
-<a href="ext_ffi_api.html#ffi_new">constructor</a>.</li>
+<a href="ext_ffi_api.html#ffi_new">constructor</a>. This is equivalent
+to <tt>ffi.new(ct, ...)</tt>, unless a <tt>__new</tt> metamethod is
+defined. The <tt>__new</tt> metamethod is called with the ctype object
+plus any other arguments passed to the contructor. Note that you have to
+use <tt>ffi.new</tt> inside of it, since calling <tt>ct(...)</tt> would
+cause infinite recursion.</li>
 
 <li><b>C&nbsp;function call</b>: a cdata function or cdata function
 pointer can be called. The passed arguments are
@@ -697,6 +716,10 @@ is performed. Otherwise both sides are converted to an
 <tt>int64_t</tt> and a signed arithmetic operation is performed. The
 result is a boxed 64&nbsp;bit cdata object.<br>
 
+If one of the operands is an <tt>enum</tt> and the other operand is a
+string, the string is converted to the value of a matching <tt>enum</tt>
+constant before the above conversion.<br>
+
 These rules ensure that 64&nbsp;bit integers are "sticky". Any
 expression involving at least one 64&nbsp;bit integer operand results
 in another one. The undefined cases for the division, modulo and power
@@ -722,7 +745,16 @@ cdata number and a Lua number can be compared with each other. If one
 of them is an <tt>uint64_t</tt>, the other side is converted to an
 <tt>uint64_t</tt> and an unsigned comparison is performed. Otherwise
 both sides are converted to an <tt>int64_t</tt> and a signed
-comparison is performed.</li>
+comparison is performed.<br>
+
+If one of the operands is an <tt>enum</tt> and the other operand is a
+string, the string is converted to the value of a matching <tt>enum</tt>
+constant before the above conversion.<br>
+
+<li><b>Comparisons for equality/inequality</b> never raise an error.
+Even incompatible pointers can be compared for equality by address. Any
+other incompatible comparison (also with non-cdata objects) treats the
+two sides as unequal.</li>
 
 </ul>
 
@@ -773,6 +805,55 @@ other alternatives or what a generic by-value hash table could
 possibly provide.</li>
 
 </ul>
+
+<h2 id="param">Parameterized Types</h2>
+<p>
+To facilitate some abstractions, the two functions
+<a href="ext_ffi_api.html#ffi_typeof"><tt>ffi.typeof</tt></a> and
+<a href="ext_ffi_api.html#ffi_cdef"><tt>ffi.cdef</tt></a> support
+parameterized types in C&nbsp;declarations. Note: none of the other API
+functions taking a cdecl allow this.
+</p>
+<p>
+Any place you can write a <b><tt>typedef</tt> name</b>, an
+<b>identifier</b> or a <b>number</b> in a declaration, you can write
+<tt>$</tt> (the dollar sign) instead. These placeholders are replaced in
+order of appearance with the arguments following the cdecl string:
+</p>
+<pre class="code">
+-- Declare a struct with a parameterized field type and name:
+ffi.cdef([[
+typedef struct { $ $; } foo_t;
+]], type1, name1)
+
+-- Anonymous struct with dynamic names:
+local bar_t = ffi.typeof("struct { int $, $; }", name1, name2)
+-- Derived pointer type:
+local bar_ptr_t = ffi.typeof("$ *", bar_t)
+
+-- Parameterized dimensions work even where a VLA won't work:
+local matrix_t = ffi.typeof("uint8_t[$][$]", width, height)
+</pre>
+<p>
+Caveat: this is <em>not</em> simple text substitution! A passed ctype or
+cdata object is treated like the underlying type, a passed string is
+considered an identifier and a number is considered a number. You must
+not mix this up: e.g. passing <tt>"int"</tt> as a string doesn't work in
+place of a type, you'd need to use <tt>ffi.typeof("int")</tt> instead.
+</p>
+<p>
+The main use for parameterized types are libraries implementing abstract
+data types
+(<a href="http://www.freelists.org/post/luajit/ffi-type-of-pointer-to,8"><span class="ext">&raquo;</span>&nbsp;example</a>),
+similar to what can be achieved with C++ template metaprogramming.
+Another use case are derived types of anonymous structs, which avoids
+pollution of the global struct namespace.
+</p>
+<p>
+Please note that parameterized types are a nice tool and indispensable
+for certain use cases. But you'll want to use them sparingly in regular
+code, e.g. when all types are actually fixed.
+</p>
 
 <h2 id="gc">Garbage Collection of cdata Objects</h2>
 <p>
@@ -852,6 +933,23 @@ It's allowed to throw errors across a callback invocation, but it's not
 advisable in general. Do this only if you know the C&nbsp;function, that
 called the callback, copes with the forced stack unwinding and doesn't
 leak resources.
+</p>
+<p>
+One thing that's not allowed, is to let an FFI call into a C&nbsp;function
+get JIT-compiled, which in turn calls a callback, calling into Lua again.
+Usually this attempt is caught by the interpreter first and the
+C&nbsp;function is blacklisted for compilation.
+</p>
+<p>
+However, this heuristic may fail under specific circumstances: e.g. a
+message polling function might not run Lua callbacks right away and the call
+gets JIT-compiled. If it later happens to call back into Lua (e.g. a rarely
+invoked error callback), you'll get a VM PANIC with the message
+<tt>"bad callback"</tt>. Then you'll need to manually turn off
+JIT-compilation with
+<a href="ext_jit.html#jit_onoff_func"><tt>jit.off()</tt></a> for the
+surrounding Lua function that invokes such a message polling function (or
+similar).
 </p>
 
 <h3 id="callback_resources">Callback resource handling</h3>
@@ -941,9 +1039,9 @@ of existing C&nbsp;APIs. E.g. callback performance is irrelevant for a
 GUI application, which waits for user input most of the time, anyway.
 </p>
 <p>
-For new designs <b>avoid push-style APIs</b> (C&nbsp;function repeatedly
-calling a callback for each result). Instead <b>use pull-style APIs</b>
-(call a C&nbsp;function repeatedly to get a new result). Calls from Lua
+For new designs <b>avoid push-style APIs</b>: a C&nbsp;function repeatedly
+calling a callback for each result. Instead <b>use pull-style APIs</b>:
+call a C&nbsp;function repeatedly to get a new result. Calls from Lua
 to C via the FFI are much faster than the other way round. Most well-designed
 libraries already use pull-style APIs (read/write, get/put).
 </p>
@@ -1101,13 +1199,12 @@ The following operations are currently not compiled and may exhibit
 suboptimal performance, especially when used in inner loops:
 </p>
 <ul>
-<li>Array/<tt>struct</tt> copies and bulk initializations.</li>
 <li>Bitfield accesses and initializations.</li>
 <li>Vector operations.</li>
 <li>Table initializers.</li>
 <li>Initialization of nested <tt>struct</tt>/<tt>union</tt> types.</li>
 <li>Allocations of variable-length arrays or structs.</li>
-<li>Allocations of C&nbsp;types with a size &gt; 64&nbsp;bytes or an
+<li>Allocations of C&nbsp;types with a size &gt; 128&nbsp;bytes or an
 alignment &gt; 8&nbsp;bytes.</li>
 <li>Conversions from lightuserdata to <tt>void&nbsp;*</tt>.</li>
 <li>Pointer differences for element sizes that are not a power of
@@ -1118,10 +1215,8 @@ value.</li>
 <li>ctype <tt>__newindex</tt> tables and non-string lookups in ctype
 <tt>__index</tt> tables.</li>
 <li><tt>tostring()</tt> for cdata types.</li>
-<li>Calls to the following <a href="ext_ffi_api.html">ffi.* API</a>
-functions: <tt>cdef</tt>, <tt>load</tt>, <tt>typeof</tt>,
-<tt>metatype</tt>, <tt>gc</tt>, <tt>sizeof</tt>, <tt>alignof</tt>,
-<tt>offsetof</tt>.</li>
+<li>Calls to <tt>ffi.cdef()</tt>, <tt>ffi.load()</tt> and
+<tt>ffi.metatype()</tt>.</li>
 </ul>
 <p>
 Other missing features:

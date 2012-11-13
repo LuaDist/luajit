@@ -28,6 +28,7 @@
 #include "lj_carith.h"
 #endif
 #include "lj_vm.h"
+#include "lj_strscan.h"
 #include "lj_lib.h"
 
 /* Some local macros to save typing. Undef'd at the end. */
@@ -42,6 +43,14 @@
 /* IR instruction modes. */
 LJ_DATADEF const uint8_t lj_ir_mode[IR__MAX+1] = {
 IRDEF(IRMODE)
+  0
+};
+
+/* IR type sizes. */
+LJ_DATADEF const uint8_t lj_ir_type_size[IRT__MAX+1] = {
+#define IRTSIZE(name, size)	size,
+IRTDEF(IRTSIZE)
+#undef IRTSIZE
   0
 };
 
