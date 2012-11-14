@@ -28,7 +28,6 @@ option ( LUAJIT_ENABLE_LUA52COMPAT "Enable Lua 5.2 compatibility." ON )
 option ( LUAJIT_DISABLE_JIT "Disable JIT." OFF )
 option ( LUAJIT_CPU_SSE2 "Disable SSE2." OFF )
 option ( LUAJIT_CPU_NOCMOV "Disable NOCMOV." OFF )
-option ( LUAJIT_RUN_DYNASM "Re-generate headers with DynASM." OFF )
 
 #2DO: LUAI_* and LUAL_* settings, for now defaults are used.
 set ( LUA_DIRSEP "/" )
@@ -116,51 +115,29 @@ else ()
   list ( REMOVE_ITEM SRC_LIB ${CMAKE_CURRENT_SOURCE_DIR}/src/lib_package_rel.c )
 endif ()
 
-file ( GLOB SRC_BUILD src/buildvm*.c )
-file ( GLOB SRC_JIT src/lj_*.c )
+## GENERATE VM
 
-# Optionally rebuild buildvm_*.h header.
-if (LUAJIT_RUN_DYNASM)
-  set(DASM ${LUA} ${CMAKE_CURRENT_SOURCE_DIR}/dynasm/dynasm.lua)
-  set(DASM_FLAGS_X86)
-  set(DASM_FLAGS_X64 -D X64)
-  set(DASM_FLAGS_X64WIN -D X64 -D X64WIN)
-  set(DASM_FLAGS_ARM)
-  set(DASM_FLAGS_PPCSPE -D SPE)
-  add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/buildvm_x86.h
-    COMMAND ${DASM} -LN ${DASM_FLAGS_X86} -o ${CMAKE_CURRENT_BINARY_DIR}/buildvm_x86.h ${CMAKE_CURRENT_SOURCE_DIR}/src/buildvm_x86.dasc
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/dynasm/dynasm.lua
-  )
-  add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/buildvm_x64.h
-    COMMAND ${DASM} -LN ${DASM_FLAGS_X64} -o ${CMAKE_CURRENT_BINARY_DIR}/buildvm_x64.h ${CMAKE_CURRENT_SOURCE_DIR}/src/buildvm_x86.dasc
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/dynasm/dynasm.lua
-  )
-  add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/buildvm_x64win.h
-    COMMAND ${DASM} -LN ${DASM_FLAGS_X64WIN} -o ${CMAKE_CURRENT_BINARY_DIR}/buildvm_x64win.h ${CMAKE_CURRENT_SOURCE_DIR}/src/buildvm_x86.dasc
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/dynasm/dynasm.lua
-  )
-  add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/buildvm_arm.h
-    COMMAND ${DASM} -LN ${DASM_FLAGS_PPCSPE} -o ${CMAKE_CURRENT_BINARY_DIR}/buildvm_arm.h ${CMAKE_CURRENT_SOURCE_DIR}/src/buildvm_arm.dasc
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/dynasm/dynasm.lua
-  )
-  add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/buildvm_ppcspe.h
-    COMMAND ${DASM} -LN ${DASM_FLAGS_PPCSPE} -o ${CMAKE_CURRENT_BINARY_DIR}/buildvm_ppcspe.h ${CMAKE_CURRENT_SOURCE_DIR}/src/buildvm_ppc.dasc
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/dynasm/dynasm.lua
-  )
+# Build minilua
+add_executable ( minilua src/host/minilua.c )
+target_link_libraries ( minilua ${LIBS} )
 
-  # Note: not all of these are needed for the current platform, but for simplicity
-  # specify all.
-  set_source_files_properties(src/buildvm.c PROPERTIES OBJECT_DEPENDS
-	${CMAKE_CURRENT_BINARY_DIR}/buildvm_x86.h
-	${CMAKE_CURRENT_BINARY_DIR}/buildvm_x64.h
-	${CMAKE_CURRENT_BINARY_DIR}/buildvm_x64win.h
-	${CMAKE_CURRENT_BINARY_DIR}/buildvm_arm.h
-	${CMAKE_CURRENT_BINARY_DIR}/buildvm_ppcspe.h)
-  include_directories(${CMAKE_CURRENT_BINARY_DIR})
-endif ()
+# Dynasm
+set ( DASM ${CMAKE_CURRENT_SOURCE_DIR}/dynasm/dynasm.lua )
+set ( DASM_T ${CMAKE_CURRENT_SOURCE_DIR}/src/host/buildvm_arch.h )
+set ( DASM_FLAGS "")
+set ( DASM_ARCH x86 )
+set ( DASM_DASC ${CMAKE_CURRENT_SOURCE_DIR}/src/vm_${DASM_ARCH}.dasc )
 
-## GENERATE
-add_executable ( buildvm ${SRC_BUILD} )
+# Generate buildvm arch header
+add_custom_command(OUTPUT ${DASM_T}
+  COMMAND minilua ${DASM} ${DASM_FLAGS} -o ${DASM_T} ${DASM_DASC}
+  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/dynasm
+  DEPENDS minilua
+)
+
+# Buildvm
+file ( GLOB SRC_BUILDVM src/host/buildvm*.c )
+add_executable ( buildvm ${SRC_BUILDVM} ${DASM_T} )
 
 macro(add_buildvm_target _target _mode)
   add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${_target}
@@ -182,6 +159,7 @@ add_buildvm_target ( lj_bcdef.h  bcdef  ${SRC_LIB} )
 add_buildvm_target ( lj_folddef.h folddef src/lj_opt_fold.c )
 add_buildvm_target ( lj_recdef.h  recdef  ${SRC_LIB} )
 add_buildvm_target ( lj_libdef.h  libdef  ${SRC_LIB} )
+add_buildvm_target ( jit/vmdef.lua  libvm  ${SRC_LIB} )
 
 SET(DEPS
   ${LJ_VM_SRC}
@@ -190,18 +168,22 @@ SET(DEPS
   ${CMAKE_CURRENT_BINARY_DIR}/lj_libdef.h
   ${CMAKE_CURRENT_BINARY_DIR}/lj_recdef.h
   ${CMAKE_CURRENT_BINARY_DIR}/lj_folddef.h
-  )
+)
 
-## COMPILE
-include_directories ( ${CMAKE_CURRENT_BINARY_DIR} dynasm src )
+## LuaJIT Library
+include_directories ( ${CMAKE_CURRENT_BINARY_DIR} dynasm src src/host )
+
+file ( GLOB SRC_JIT src/lj_*.c )
+
 add_library ( liblua SHARED ${SRC_JIT} ${SRC_LIB} ${DEPS} )
 target_link_libraries ( liblua ${LIBS} )
 set_target_properties ( liblua PROPERTIES OUTPUT_NAME lua CLEAN_DIRECT_OUTPUT 1 )
 
+## LuaJIT Executable
 add_executable ( lua src/luajit.c src/luajit.rc )
 target_link_libraries ( lua liblua )
 
-# On windows a variant of the lua interpreter without console output needs to be built
+# On Windows build a no-console variant also
 if(LUA_BUILD_WLUA)
   add_executable ( wlua WIN32 src/luajit.c src/luajit.rc )
   target_link_libraries ( wlua liblua )
@@ -213,9 +195,6 @@ install_executable( lua )
 install_library( liblua )
 install_header( src/lua.h src/luajit.h src/lua.hpp ${CMAKE_CURRENT_BINARY_DIR}/luaconf.h src/lualib.h src/lauxlib.h )
 
-install_lua_module ( strict etc/strict.lua )
 install_doc ( doc/ )
 install_foo ( etc/ )
 install_data ( COPYRIGHT README.md )
-install_data ( lib/ INTO lib )
-
