@@ -1,6 +1,6 @@
 /*
 ** C type conversions.
-** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2013 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #include "lj_obj.h"
@@ -493,17 +493,19 @@ static void cconv_substruct_tab(CTState *cts, CType *d, uint8_t *dp,
     id = df->sib;
     if (ctype_isfield(df->info) || ctype_isbitfield(df->info)) {
       TValue *tv;
-      int32_t i = *ip;
+      int32_t i = *ip, iz = i;
       if (!gcref(df->name)) continue;  /* Ignore unnamed fields. */
       if (i >= 0) {
       retry:
 	tv = (TValue *)lj_tab_getint(t, i);
 	if (!tv || tvisnil(tv)) {
 	  if (i == 0) { i = 1; goto retry; }  /* 1-based tables. */
+	  if (iz == 0) { *ip = i = -1; goto tryname; }  /* Init named fields. */
 	  break;  /* Stop at first nil. */
 	}
 	*ip = i + 1;
       } else {
+      tryname:
 	tv = (TValue *)lj_tab_getstr(t, gco2str(gcref(df->name)));
 	if (!tv || tvisnil(tv)) continue;
       }
@@ -513,7 +515,8 @@ static void cconv_substruct_tab(CTState *cts, CType *d, uint8_t *dp,
 	lj_cconv_bf_tv(cts, df, dp+df->size, tv);
       if ((d->info & CTF_UNION)) break;
     } else if (ctype_isxattrib(df->info, CTA_SUBTYPE)) {
-      cconv_substruct_tab(cts, ctype_child(cts, df), dp+df->size, t, ip, flags);
+      cconv_substruct_tab(cts, ctype_rawchild(cts, df),
+			  dp+df->size, t, ip, flags);
     }  /* Ignore all other entries in the chain. */
   }
 }
@@ -524,7 +527,6 @@ static void cconv_struct_tab(CTState *cts, CType *d,
 {
   int32_t i = 0;
   memset(dp, 0, d->size);  /* Much simpler to clear the struct first. */
-  if (t->hmask) i = -1; else if (t->asize == 0) return;  /* Fast exit. */
   cconv_substruct_tab(cts, d, dp, t, &i, flags);
 }
 
@@ -698,7 +700,8 @@ static void cconv_substruct_init(CTState *cts, CType *d, uint8_t *dp,
 	lj_cconv_bf_tv(cts, df, dp+df->size, o + i);
       if ((d->info & CTF_UNION)) break;
     } else if (ctype_isxattrib(df->info, CTA_SUBTYPE)) {
-      cconv_substruct_init(cts, ctype_child(cts, df), dp+df->size, o, len, ip);
+      cconv_substruct_init(cts, ctype_rawchild(cts, df),
+			   dp+df->size, o, len, ip);
     }  /* Ignore all other entries in the chain. */
   }
 }

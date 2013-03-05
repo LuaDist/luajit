@@ -4,7 +4,7 @@
 <title>LuaJIT Change History</title>
 <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
 <meta name="Author" content="Mike Pall">
-<meta name="Copyright" content="Copyright (C) 2005-2012, Mike Pall">
+<meta name="Copyright" content="Copyright (C) 2005-2013, Mike Pall">
 <meta name="Language" content="en">
 <link rel="stylesheet" type="text/css" href="bluequad.css" media="screen">
 <link rel="stylesheet" type="text/css" href="bluequad-print.css" media="print">
@@ -63,7 +63,7 @@ div.major { max-width: 600px; padding: 1em; margin: 1em 0 1em 0; }
 <div id="main">
 <p>
 This is a list of changes between the released versions of LuaJIT.<br>
-The current <span style="color: #0000c0;">stable version</span> is <strong>LuaJIT&nbsp;2.0.0</strong>.<br>
+The current <span style="color: #0000c0;">stable version</span> is <strong>LuaJIT&nbsp;2.0.1</strong>.<br>
 </p>
 <p>
 Please check the
@@ -72,6 +72,27 @@ to see whether newer versions are available.
 </p>
 
 <div class="major" style="background: #d0d0ff;">
+<h2 id="LuaJIT-2.0.1">LuaJIT 2.0.1 &mdash; 2013-02-19</h2>
+<ul>
+<li>Don't clear frame for out-of-memory error.</li>
+<li>Leave hook when resume catches error thrown from hook.</li>
+<li>Add missing GC steps for template table creation.</li>
+<li>Fix discharge order of comparisons in Lua parser.</li>
+<li>Improve buffer handling for <tt>io.read()</tt>.</li>
+<li>OSX: Add support for Mach-O object files to <tt>-b</tt> option.</li>
+<li>Fix PS3 port.</li>
+<li>Fix/enable Xbox 360 port.</li>
+<li>x86/x64: Always mark ref for shift count as non-weak.</li>
+<li>x64: Don't fuse implicitly 32-to-64 extended operands.</li>
+<li>ARM: Fix armhf call argument handling.</li>
+<li>ARM: Fix code generation for integer math.min/math.max.</li>
+<li>PPC/e500: Fix <tt>lj_vm_floor()</tt> for Inf/NaN.</li>
+<li>FFI: Change priority of table initializer variants for structs.</li>
+<li>FFI: Fix code generation for bool call result check on x86/x64.</li>
+<li>FFI: Load FFI library on-demand for bytecode with cdata literals.</li>
+<li>FFI: Fix handling of qualified transparent structs/unions.</li>
+</ul>
+
 <h2 id="LuaJIT-2.0.0">LuaJIT 2.0.0 &mdash; 2012-11-08</h2>
 <ul>
 <li>Correctness and completeness:
@@ -831,7 +852,7 @@ This is the initial non-public release of LuaJIT.
 </div>
 <div id="foot">
 <hr class="hide">
-Copyright &copy; 2005-2012 Mike Pall
+Copyright &copy; 2005-2013 Mike Pall
 <span class="noprint">
 &middot;
 <a href="contact.html">Contact</a>

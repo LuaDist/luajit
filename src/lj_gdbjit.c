@@ -1,6 +1,6 @@
 /*
 ** Client for the GDB JIT API.
-** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2013 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #define lj_gdbjit_c
@@ -356,7 +356,7 @@ static const ELFheader elfhdr_template = {
   .eosabi = 2,
 #elif defined(__OpenBSD__)
   .eosabi = 12,
-#elif (defined(__sun__) && defined(__svr4__)) || defined(__solaris__)
+#elif (defined(__sun__) && defined(__svr4__))
   .eosabi = 6,
 #else
   .eosabi = 0,

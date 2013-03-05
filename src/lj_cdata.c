@@ -1,6 +1,6 @@
 /*
 ** C data management.
-** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2013 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #include "lj_obj.h"
@@ -151,7 +151,7 @@ collect_attrib:
     GCstr *name = strV(key);
     if (ctype_isstruct(ct->info)) {
       CTSize ofs;
-      CType *fct = lj_ctype_getfield(cts, ct, name, &ofs);
+      CType *fct = lj_ctype_getfieldq(cts, ct, name, &ofs, qual);
       if (fct) {
 	*pp = p + ofs;
 	return fct;

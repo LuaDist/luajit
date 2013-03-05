@@ -1,6 +1,6 @@
 /*
 ** Lua parser (source code -> bytecode).
-** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2013 Mike Pall. See Copyright Notice in luajit.h
 **
 ** Major portions taken verbatim or adapted from the Lua interpreter.
 ** Copyright (C) 1994-2008 Lua.org, PUC-Rio. See Copyright Notice in lua.h
@@ -481,8 +481,8 @@ static void bcemit_nil(FuncState *fs, BCReg from, BCReg n)
       } else {
 	break;
       }
-      fs->pc--;  /* Drop KPRI. */
-      break;
+      *ip = BCINS_AD(BC_KNIL, from, from+n-1);  /* Replace KPRI. */
+      return;
     case BC_KNIL:
       pto = bc_d(*ip);
       if (pfrom <= from && from <= pto+1) {  /* Can we connect both ranges? */
@@ -848,6 +848,7 @@ static void bcemit_comp(FuncState *fs, BinOpr opr, ExpDesc *e1, ExpDesc *e2)
     if ((op-BC_ISLT) & 1) {  /* GT -> LT, GE -> LE */
       e1 = e2; e2 = eret;  /* Swap operands. */
       op = ((op-BC_ISLT)^3)+BC_ISLT;
+      expr_toval(fs, e1);
     }
     rd = expr_toanyreg(fs, e2);
     ra = expr_toanyreg(fs, e1);
@@ -1825,6 +1826,7 @@ static void expr_table(LexState *ls, ExpDesc *e)
 	}
       }
     }
+    lj_gc_check(fs->L);
   }
 }
 

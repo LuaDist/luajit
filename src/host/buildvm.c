@@ -1,6 +1,6 @@
 /*
 ** LuaJIT VM builder.
-** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2013 Mike Pall. See Copyright Notice in luajit.h
 **
 ** This is a tool to build the hand-tuned assembler code required for
 ** LuaJIT's bytecode interpreter. It supports a variety of output formats
@@ -100,6 +100,8 @@ static const char *sym_decorate(BuildCtx *ctx,
   char *p;
 #if LJ_64
   const char *symprefix = ctx->mode == BUILD_machasm ? "_" : "";
+#elif LJ_TARGET_XBOX360
+  const char *symprefix = "";
 #else
   const char *symprefix = ctx->mode != BUILD_elfasm ? "_" : "";
 #endif
@@ -136,7 +138,11 @@ static int collect_reloc(BuildCtx *ctx, uint8_t *addr, int idx, int type)
   ctx->reloc[ctx->nreloc].sym = relocmap[idx];
   ctx->reloc[ctx->nreloc].type = type;
   ctx->nreloc++;
+#if LJ_TARGET_XBOX360
+  return (int)(ctx->code - addr) + 4;  /* Encode symbol offset of .text. */
+#else
   return 0;  /* Encode symbol offset of 0. */
+#endif
 }
 
 /* Naive insertion sort. Performance doesn't matter here. */

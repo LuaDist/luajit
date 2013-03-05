@@ -1,6 +1,6 @@
 /*
 ** Stack frames.
-** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2013 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #ifndef _LJ_FRAME_H
@@ -104,7 +104,16 @@ enum {
 #endif
 #define CFRAME_SHIFT_MULTRES	3
 #elif LJ_TARGET_PPC
-#if LJ_ARCH_PPC64
+#if LJ_TARGET_XBOX360
+#define CFRAME_OFS_ERRF		424
+#define CFRAME_OFS_NRES		420
+#define CFRAME_OFS_PREV		400
+#define CFRAME_OFS_L		416
+#define CFRAME_OFS_PC		412
+#define CFRAME_OFS_MULTRES	408
+#define CFRAME_SIZE		384
+#define CFRAME_SHIFT_MULTRES	3
+#elif LJ_ARCH_PPC64
 #define CFRAME_OFS_ERRF		472
 #define CFRAME_OFS_NRES		468
 #define CFRAME_OFS_PREV		448
