@@ -126,7 +126,8 @@ target_link_libraries ( minilua ${LIBS} )
 set ( DASM ${CMAKE_CURRENT_SOURCE_DIR}/dynasm/dynasm.lua )
 set ( DASM_T ${CMAKE_CURRENT_SOURCE_DIR}/src/host/buildvm_arch.h )
 
-set ( DASM_FLAGS "")
+set ( DASM_FLAGS "" )
+set ( DASM_ARCH "x86" )
 set ( DASM_DASC ${CMAKE_CURRENT_SOURCE_DIR}/src/vm_${DASM_ARCH}.dasc )
 
 # Generate buildvm arch header
