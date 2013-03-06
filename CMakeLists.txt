@@ -49,6 +49,7 @@ set ( LUA_CPATH_DEFAULT "./?${LUA_MODULE_SUFFIX};${LUA_DIR}${LUA_CDIR}/?${LUA_MO
 if ( WIN32 AND NOT CYGWIN )
   # Windows systems
   add_definitions ( -DLUA_BUILD_AS_DLL -DLUAJIT_OS=LUAJIT_OS_WINDOWS)
+  option ( LUA_BUILD_WLUA "Build wluajit interpreter for no-console applications." ON )
   set ( LJVM_MODE coffasm )
   # Paths (Double escapes needed)
   set ( LUA_DIRSEP "\\\\" )
@@ -124,8 +125,8 @@ target_link_libraries ( minilua ${LIBS} )
 # Dynasm
 set ( DASM ${CMAKE_CURRENT_SOURCE_DIR}/dynasm/dynasm.lua )
 set ( DASM_T ${CMAKE_CURRENT_SOURCE_DIR}/src/host/buildvm_arch.h )
+
 set ( DASM_FLAGS "")
-set ( DASM_ARCH x86 )
 set ( DASM_DASC ${CMAKE_CURRENT_SOURCE_DIR}/src/vm_${DASM_ARCH}.dasc )
 
 # Generate buildvm arch header
@@ -180,18 +181,18 @@ target_link_libraries ( liblua ${LIBS} )
 set_target_properties ( liblua PROPERTIES OUTPUT_NAME lua CLEAN_DIRECT_OUTPUT 1 )
 
 ## LuaJIT Executable
-add_executable ( lua src/luajit.c src/luajit.rc )
-target_link_libraries ( lua liblua )
+add_executable ( luajit src/luajit.c src/luajit.rc )
+target_link_libraries ( luajit liblua )
 
 # On Windows build a no-console variant also
 if(LUA_BUILD_WLUA)
-  add_executable ( wlua WIN32 src/luajit.c src/luajit.rc )
-  target_link_libraries ( wlua liblua )
-  install_executable ( wlua )
+  add_executable ( wluajit WIN32 src/wmain.c src/luajit.c src/luajit.rc )
+  target_link_libraries ( wluajit liblua )
+  install_executable ( wluajit )
 endif()
 
 ## INSTALL
-install_executable( lua )
+install_executable( luajit )
 install_library( liblua )
 install_header( src/lua.h src/luajit.h src/lua.hpp ${CMAKE_CURRENT_BINARY_DIR}/luaconf.h src/lualib.h src/lauxlib.h )
 
