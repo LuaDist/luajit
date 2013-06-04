@@ -1,6 +1,6 @@
 /*
 ** Package library.
-** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2013 Mike Pall. See Copyright Notice in luajit.h
 **
 ** Major portions taken verbatim or adapted from the Lua interpreter.
 ** Copyright (C) 1994-2012 Lua.org, PUC-Rio. See Copyright Notice in lua.h
@@ -31,24 +31,38 @@
 #define SYMPREFIX_CF		"luaopen_%s"
 #define SYMPREFIX_BC		"luaJIT_BC_%s"
 
-// LuaDist specific modification
-// We REALLY need relative paths on Unix systems
+/*
+** {=========================================================================
+** This determines the location of the executable for relative module loading
+** Modified by the LuaDist project for UNIX platforms
+** ==========================================================================
+*/
 #if defined(_WIN32) || defined(__CYGWIN__)
   #include <windows.h>
   #define _PATH_MAX MAX_PATH
-#elif defined(__APPLE__)
-  #include <sys/param.h>
-  #include <mach-o/dyld.h>
-  #define _PATH_MAX 2000
 #else
   #define _PATH_MAX PATH_MAX
 #endif
 
-static void setprogdir (lua_State *L) {
+#if defined(__linux__) || defined(__sun)
+  #include <unistd.h> /* readlink */
+#endif
+
+#if defined(__APPLE__)
+  #include <sys/param.h>
+  #include <mach-o/dyld.h>
+#endif
+
+#if defined(__FreeBSD__)
+  #include <sys/types.h>
+  #include <sys/sysctl.h>
+#endif
+
+static void setprogdir(lua_State *L) {
   char progdir[_PATH_MAX + 1];
   char *lb;
   int nsize = sizeof(progdir)/sizeof(char);
-  int n = 0;
+  int n;
 #if defined(__CYGWIN__)
   char win_buff[_PATH_MAX + 1];
   GetModuleFileNameA(NULL, win_buff, nsize);
@@ -59,7 +73,22 @@ static void setprogdir (lua_State *L) {
 #elif defined(__linux__)
   n = readlink("/proc/self/exe", progdir, nsize);
   if (n > 0) progdir[n] = 0;
+#elif defined(__sun)
+  pid_t pid = getpid();
+  char linkname[256];
+  sprintf(linkname, "/proc/%d/path/a.out", pid);
+  n = readlink(linkname, progdir, nsize);
+  if (n > 0) progdir[n] = 0;  
 #elif defined(__FreeBSD__)
+  int mib[4];
+  mib[0] = CTL_KERN;
+  mib[1] = KERN_PROC;
+  mib[2] = KERN_PROC_PATHNAME;
+  mib[3] = -1;
+  size_t cb = nsize;
+  sysctl(mib, 4, progdir, &cb, NULL, 0);
+  n = cb;
+#elif defined(__BSD__)
   n = readlink("/proc/curproc/file", progdir, nsize);
   if (n > 0) progdir[n] = 0;
 #elif defined(__APPLE__)
@@ -86,9 +115,6 @@ static void setprogdir (lua_State *L) {
     luaL_error(L, "unable to get process executable path");
   else {
     *lb = '\0';
-    // Set progdir global
-    lua_pushstring(L, progdir);
-    lua_setglobal(L, "_PROGDIR");
     
     // Replace the relative path placeholder
     luaL_gsub(L, lua_tostring(L, -1), LUA_EXECDIR, progdir);

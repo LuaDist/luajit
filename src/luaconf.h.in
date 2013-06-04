@@ -1,6 +1,6 @@
 /*
 ** Configuration header.
-** Copyright (C) 2005-2012 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2013 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #ifndef luaconf_h
@@ -8,10 +8,18 @@
 
 #include <limits.h>
 #include <stddef.h>
-  
+
 #cmakedefine LUAJIT_DISABLE_FFI
 #cmakedefine LUAJIT_ENABLE_LUA52COMPAT
 #cmakedefine LUAJIT_DISABLE_JIT 
+
+#cmakedefine LUAJIT_USE_SYSMALLOC
+#cmakedefine LUAJIT_USE_VALGRIND
+#cmakedefine LUAJIT_USE_GDBJIT
+
+#cmakedefine LUA_USE_APICHECK
+#cmakedefine LUA_USE_ASSERT
+
 #cmakedefine LUAJIT_CPU_SSE2
 #cmakedefine LUAJIT_CPU_NOCMOV
 
@@ -44,11 +52,11 @@
 #define LUA_QS		LUA_QL("%s")
 
 /* Various tunables. */
-#define LUAI_MAXSTACK	65500	/* Max. # of stack slots for a thread (<64K). */
-#define LUAI_MAXCSTACK	8000	/* Max. # of stack slots for a C func (<10K). */
-#define LUAI_GCPAUSE	200	/* Pause GC until memory is at 200%. */
-#define LUAI_GCMUL	200	/* Run GC at 200% of allocation speed. */
-#define LUA_MAXCAPTURES	32	/* Max. pattern captures. */
+#cmakedefine LUAI_MAXSTACK	@LUAI_MAXSTACK@	/* Max. # of stack slots for a thread (<64K). */
+#cmakedefine LUAI_MAXCSTACK	@LUAI_MAXCSTACK@	/* Max. # of stack slots for a C func (<10K). */
+#cmakedefine LUAI_GCPAUSE	@LUAI_GCPAUSE@	/* Pause GC until memory is at 200%. */
+#cmakedefine LUAI_GCMUL	@LUAI_GCMUL@	/* Run GC at 200% of allocation speed. */
+#cmakedefine LUA_MAXCAPTURES	@LUA_MAXCAPTURES@	/* Max. pattern captures. */
 
 /* Compatibility with older library function names. */
 #define LUA_COMPAT_MOD		/* OLD: math.mod, NEW: math.fmod */
@@ -65,7 +73,12 @@
 /* Note: changing the following defines breaks the Lua 5.1 ABI. */
 #define LUA_INTEGER	ptrdiff_t
 #define LUA_IDSIZE	60	/* Size of lua_Debug.short_src. */
-#define LUAL_BUFFERSIZE	BUFSIZ	/* Size of lauxlib and io.* buffers. */
+/*
+** Size of lauxlib and io.* on-stack buffers. Weird workaround to avoid using
+** unreasonable amounts of stack space, but still retain ABI compatibility.
+** Blame Lua for depending on BUFSIZ in the ABI, blame **** for wrecking it.
+*/
+#define LUAL_BUFFERSIZE	(BUFSIZ > 16384 ? 8192 : BUFSIZ)
 
 /* The following defines are here only for compatibility with luaconf.h
 ** from the standard Lua distribution. They must not be changed for LuaJIT.
