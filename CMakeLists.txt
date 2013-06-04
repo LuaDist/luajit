@@ -160,9 +160,16 @@ set ( DASM ${CMAKE_CURRENT_SOURCE_DIR}/dynasm/dynasm.lua )
 set ( DASM_T ${CMAKE_CURRENT_SOURCE_DIR}/src/host/buildvm_arch.h )
 
 # 2DO: Proper detection of flags
-set ( DASM_FLAGS -D P64 -D JIT -D FFI -D FPU -D HFABI -D VER= )
+set ( DASM_FLAGS -D JIT -D FFI -D FPU -D HFABI -D VER= )
 set ( DASM_ARCH x86 )
 set ( DASM_DASC ${CMAKE_CURRENT_SOURCE_DIR}/src/vm_${DASM_ARCH}.dasc )
+
+if ( CMAKE_SIZEOF_VOID_P EQUAL 8 )
+  list ( APPEND DASM_FLAGS -D P64 )
+endif ()
+if ( WIN32 )
+  list ( APPEND DASM_FLAGS -D WIN )
+endif ()
 
 # Generate buildvm arch header
 add_custom_command(OUTPUT ${DASM_T}
