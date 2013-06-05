@@ -190,7 +190,7 @@ macro(add_buildvm_target _target _mode)
   )
 endmacro(add_buildvm_target)
 
-if ( MSVC )
+if ( WIN32 AND NOT CYGWIN )
   add_buildvm_target ( lj_vm.obj peobj )
   set (LJ_VM_SRC ${CMAKE_CURRENT_BINARY_DIR}/lj_vm.obj)
 else ()
