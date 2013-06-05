@@ -26,7 +26,7 @@ set ( LUA_MAXINPUT 512 CACHE NUMBER "Is the maximum length for an input line in 
 # Version
 set ( MAJVER 2 )
 set ( MINVER 0 )
-set ( RELVER 0 )
+set ( RELVER 2 )
 set ( ABIVER 5.1 )
 set ( NODOTABIVER 51 )
 
@@ -73,7 +73,7 @@ if ( WIN32 AND NOT CYGWIN )
   # Windows systems
   add_definitions ( -DLUA_BUILD_AS_DLL -DLUAJIT_OS=LUAJIT_OS_WINDOWS)
   option ( LUA_BUILD_WLUA "Build wluajit interpreter for no-console applications." ON )
-  set ( LJVM_MODE coffasm )
+  set ( LJVM_MODE peobj )
   # Paths (Double escapes needed)
   set ( LUA_DIRSEP "\\\\" )
   string ( REPLACE "/" ${LUA_DIRSEP} LUA_DIR "${LUA_DIR}" )
