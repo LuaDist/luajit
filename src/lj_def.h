@@ -101,8 +101,8 @@ typedef unsigned int uintptr_t;
 #define checkptr32(x)	((uintptr_t)(x) == (uint32_t)(uintptr_t)(x))
 
 /* Every half-decent C compiler transforms this into a rotate instruction. */
-#define lj_rol(x, n)	(((x)<<(n)) | ((x)>>(8*sizeof(x)-(n))))
-#define lj_ror(x, n)	(((x)<<(8*sizeof(x)-(n))) | ((x)>>(n)))
+#define lj_rol(x, n)	(((x)<<(n)) | ((x)>>(-(int)(n)&(8*sizeof(x)-1))))
+#define lj_ror(x, n)	(((x)<<(-(int)(n)&(8*sizeof(x)-1))) | ((x)>>(n)))
 
 /* A really naive Bloom filter. But sufficient for our needs. */
 typedef uintptr_t BloomFilter;
@@ -243,17 +243,17 @@ static LJ_AINLINE uint32_t lj_getu32(const void *p)
 #endif
 
 #ifdef _M_PPC
-#pragma intrinsic(_CountLeadingZeros)
 unsigned int _CountLeadingZeros(long);
+#pragma intrinsic(_CountLeadingZeros)
 static LJ_AINLINE uint32_t lj_fls(uint32_t x)
 {
   return _CountLeadingZeros(x) ^ 31;
 }
 #else
-#pragma intrinsic(_BitScanForward)
-#pragma intrinsic(_BitScanReverse)
 unsigned char _BitScanForward(uint32_t *, unsigned long);
 unsigned char _BitScanReverse(uint32_t *, unsigned long);
+#pragma intrinsic(_BitScanForward)
+#pragma intrinsic(_BitScanReverse)
 
 static LJ_AINLINE uint32_t lj_ffs(uint32_t x)
 {

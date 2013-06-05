@@ -91,6 +91,7 @@ static MCode *asm_exitstub_gen(ASMState *as, ExitNo group)
   *mxp++ = group*EXITSTUBS_PER_GROUP;
   for (i = 0; i < EXITSTUBS_PER_GROUP; i++)
     *mxp++ = ARMI_B|((-6-i)&0x00ffffffu);
+  lj_mcode_sync(as->mcbot, mxp);
   lj_mcode_commitbot(as->J, mxp);
   as->mcbot = mxp;
   as->mclim = as->mcbot + MCLIM_REDZONE;
@@ -463,7 +464,7 @@ static void asm_call(ASMState *as, IRIns *ir)
 
 static void asm_callx(ASMState *as, IRIns *ir)
 {
-  IRRef args[CCI_NARGS_MAX];
+  IRRef args[CCI_NARGS_MAX*2];
   CCallInfo ci;
   IRRef func;
   IRIns *irf;
@@ -1816,6 +1817,7 @@ notst:
     as->flagmcp = as->mcp;  /* Allow elimination of the compare. */
 }
 
+#if LJ_HASFFI
 /* 64 bit integer comparisons. */
 static void asm_int64comp(ASMState *as, IRIns *ir)
 {
@@ -1851,6 +1853,7 @@ static void asm_int64comp(ASMState *as, IRIns *ir)
   }
   emit_n(as, ARMI_CMP^mhi, lefthi);
 }
+#endif
 
 /* -- Support for 64 bit ops in 32 bit mode ------------------------------- */
 
@@ -1864,11 +1867,14 @@ static void asm_hiop(ASMState *as, IRIns *ir)
   if ((ir-1)->o <= IR_NE) {  /* 64 bit integer or FP comparisons. ORDER IR. */
     as->curins--;  /* Always skip the loword comparison. */
 #if LJ_SOFTFP
-    if (!irt_isint(ir->t))
+    if (!irt_isint(ir->t)) {
       asm_sfpcomp(as, ir-1);
-    else
+      return;
+    }
 #endif
-      asm_int64comp(as, ir-1);
+#if LJ_HASFFI
+    asm_int64comp(as, ir-1);
+#endif
     return;
 #if LJ_SOFTFP
   } else if ((ir-1)->o == IR_MIN || (ir-1)->o == IR_MAX) {
@@ -2289,7 +2295,7 @@ static void asm_ir(ASMState *as, IRIns *ir)
 /* Ensure there are enough stack slots for call arguments. */
 static Reg asm_setup_call_slots(ASMState *as, IRIns *ir, const CCallInfo *ci)
 {
-  IRRef args[CCI_NARGS_MAX];
+  IRRef args[CCI_NARGS_MAX*2];
   uint32_t i, nargs = (int)CCI_NARGS(ci);
   int nslots = 0, ngpr = REGARG_NUMGPR, nfpr = REGARG_NUMFPR, fprodd = 0;
   asm_collectargs(as, ir, ci, args);

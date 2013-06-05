@@ -125,11 +125,6 @@ static IRType crec_ct2irt(CTState *cts, CType *ct)
 #define CREC_COPY_MAXLEN		128
 
 #define CREC_FILL_MAXUNROLL		16
-#if LJ_TARGET_UNALIGNED
-#define CREC_FILL_MAXLEN		(CTSIZE_PTR * CREC_FILL_MAXUNROLL)
-#else
-#define CREC_FILL_MAXLEN		CREC_FILL_MAXUNROLL
-#endif
 
 /* Number of windowed registers used for optimized memory copy. */
 #if LJ_TARGET_X86
@@ -320,9 +315,9 @@ static void crec_fill(jit_State *J, TRef trdst, TRef trlen, TRef trfill,
     MSize mlp;
     CTSize len = (CTSize)IR(tref_ref(trlen))->i;
     if (len == 0) return;  /* Shortcut. */
-    if (len > CREC_FILL_MAXLEN) goto fallback;
     if (LJ_TARGET_UNALIGNED || step >= CTSIZE_PTR)
       step = CTSIZE_PTR;
+    if (step * CREC_FILL_MAXUNROLL < len) goto fallback;
     mlp = crec_fill_unroll(ml, len, step);
     if (!mlp) goto fallback;
     if (tref_isk(trfill) || ml[0].tp != IRT_U8)
@@ -453,6 +448,10 @@ static TRef crec_ct_ct(jit_State *J, CType *d, CType *s, TRef dp, TRef sp,
     sinfo = CTINFO(CT_NUM, CTF_UNSIGNED);
     ssize = CTSIZE_PTR;
     st = IRT_UINTP;
+    if (((dsize ^ ssize) & 8) == 0) {  /* Must insert no-op type conversion. */
+      sp = emitconv(sp, dsize < 4 ? IRT_INT : dt, IRT_PTR, 0);
+      goto xstore;
+    }
     goto conv_I_I;
 
   /* Destination is a floating-point number. */
@@ -619,7 +618,7 @@ static TRef crec_ct_tv(jit_State *J, CType *d, TRef dp, TRef sp, cTValue *sval)
       emitir(IRTGI(IR_EQ), tr, lj_ir_kint(J, UDTYPE_IO_FILE));
       sp = emitir(IRT(IR_FLOAD, IRT_PTR), sp, IRFL_UDATA_FILE);
     } else {
-      sp = emitir(IRT(IR_ADD, IRT_P32), sp, lj_ir_kint(J, sizeof(GCudata)));
+      sp = emitir(IRT(IR_ADD, IRT_PTR), sp, lj_ir_kintp(J, sizeof(GCudata)));
     }
   } else if (tref_isstr(sp)) {
     if (ctype_isenum(d->info)) {  /* Match string against enum constant. */
@@ -637,7 +636,8 @@ static TRef crec_ct_tv(jit_State *J, CType *d, TRef dp, TRef sp, cTValue *sval)
     } else if (ctype_isrefarray(d->info)) {  /* Copy string to array. */
       lj_trace_err(J, LJ_TRERR_BADTYPE);  /* NYI */
     } else {  /* Otherwise pass the string data as a const char[]. */
-      sp = emitir(IRT(IR_STRREF, IRT_P32), sp, lj_ir_kint(J, 0));
+      /* Don't use STRREF. It folds with SNEW, which loses the trailing NUL. */
+      sp = emitir(IRT(IR_ADD, IRT_PTR), sp, lj_ir_kintp(J, sizeof(GCstr)));
       sid = CTID_A_CCHAR;
     }
   } else {  /* NYI: tref_istab(sp), tref_islightud(sp). */
@@ -1084,7 +1084,7 @@ static void crec_snap_caller(jit_State *J)
   const BCIns *pc = J->pc;
   TRef ftr = J->base[-1];
   ptrdiff_t delta;
-  if (!frame_islua(base-1))
+  if (!frame_islua(base-1) || J->framedepth <= 0)
     lj_trace_err(J, LJ_TRERR_NYICALL);
   J->pc = frame_pc(base-1); delta = 1+bc_a(J->pc[-1]);
   L->top = base; L->base = base - delta;

@@ -286,6 +286,7 @@ static void asm_gencall(ASMState *as, const CCallInfo *ci, IRRef *args)
       else
 	ofs += 4;
     }
+    checkmclim(as);
   }
   if ((ci->flags & CCI_VARARG))  /* Vararg calls need to know about FPR use. */
     emit_tab(as, fpr == REGARG_FIRSTFPR ? PPCI_CRXOR : PPCI_CREQV, 6, 6, 6);
@@ -339,7 +340,7 @@ static void asm_call(ASMState *as, IRIns *ir)
 
 static void asm_callx(ASMState *as, IRIns *ir)
 {
-  IRRef args[CCI_NARGS_MAX];
+  IRRef args[CCI_NARGS_MAX*2];
   CCallInfo ci;
   IRRef func;
   IRIns *irf;
@@ -2091,7 +2092,7 @@ static void asm_ir(ASMState *as, IRIns *ir)
 /* Ensure there are enough stack slots for call arguments. */
 static Reg asm_setup_call_slots(ASMState *as, IRIns *ir, const CCallInfo *ci)
 {
-  IRRef args[CCI_NARGS_MAX];
+  IRRef args[CCI_NARGS_MAX*2];
   uint32_t i, nargs = (int)CCI_NARGS(ci);
   int nslots = 2, ngpr = REGARG_NUMGPR, nfpr = REGARG_NUMFPR;
   asm_collectargs(as, ir, ci, args);

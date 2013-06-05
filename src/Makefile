@@ -12,7 +12,7 @@
 
 MAJVER=  2
 MINVER=  0
-RELVER=  0
+RELVER=  2
 ABIVER=  5.1
 NODOTABIVER= 51
 
@@ -487,7 +487,8 @@ TARGET_DEP= $(LIB_VMDEF) $(LUAJIT_SO)
 
 ifeq (Windows,$(TARGET_SYS))
   TARGET_DYNCC= $(STATIC_CC)
-  LJVM_MODE= coffasm
+  LJVM_MODE= peobj
+  LJVM_BOUT= $(LJVM_O)
   LUAJIT_T= luajit.exe
   ifeq (cygwin,$(HOST_MSYS))
     LUAJIT_SO= cyg$(TARGET_DLLNAME)

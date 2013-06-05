@@ -32,12 +32,34 @@
 
 #else
 
+#if LJ_TARGET_OSX
+
+#define CCALL_HANDLE_STRUCTRET \
+  /* Return structs of size 1, 2, 4 or 8 in registers. */ \
+  cc->retref = !(sz == 1 || sz == 2 || sz == 4 || sz == 8); \
+  if (cc->retref) { \
+    if (ngpr < maxgpr) \
+      cc->gpr[ngpr++] = (GPRArg)dp; \
+    else \
+      cc->stack[nsp++] = (GPRArg)dp; \
+  } else {  /* Struct with single FP field ends up in FPR. */ \
+    cc->resx87 = ccall_classify_struct(cts, ctr); \
+  }
+
+#define CCALL_HANDLE_STRUCTRET2 \
+  if (cc->resx87) sp = (uint8_t *)&cc->fpr[0]; \
+  memcpy(dp, sp, ctr->size);
+
+#else
+
 #define CCALL_HANDLE_STRUCTRET \
   cc->retref = 1;  /* Return all structs by reference (in reg or on stack). */ \
   if (ngpr < maxgpr) \
     cc->gpr[ngpr++] = (GPRArg)dp; \
   else \
     cc->stack[nsp++] = (GPRArg)dp;
+
+#endif
 
 #define CCALL_HANDLE_COMPLEXRET \
   /* Return complex float in GPRs and complex double by reference. */ \
@@ -103,9 +125,9 @@
 /* Windows/x64 argument registers are strictly positional (use ngpr). */
 #define CCALL_HANDLE_REGARG \
   if (isfp) { \
-    if (ngpr < 4) { dp = &cc->fpr[ngpr++]; nfpr = ngpr; goto done; } \
+    if (ngpr < maxgpr) { dp = &cc->fpr[ngpr++]; nfpr = ngpr; goto done; } \
   } else { \
-    if (ngpr < 4) { dp = &cc->gpr[ngpr++]; goto done; } \
+    if (ngpr < maxgpr) { dp = &cc->gpr[ngpr++]; goto done; } \
   }
 
 #elif LJ_TARGET_X64
@@ -414,6 +436,42 @@
   memcpy(dp, sp, ctr->size);  /* Copy struct return value from GPRs. */
 #endif
 
+/* -- x86 OSX ABI struct classification ----------------------------------- */
+
+#if LJ_TARGET_X86 && LJ_TARGET_OSX
+
+/* Check for struct with single FP field. */
+static int ccall_classify_struct(CTState *cts, CType *ct)
+{
+  CTSize sz = ct->size;
+  if (!(sz == sizeof(float) || sz == sizeof(double))) return 0;
+  if ((ct->info & CTF_UNION)) return 0;
+  while (ct->sib) {
+    ct = ctype_get(cts, ct->sib);
+    if (ctype_isfield(ct->info)) {
+      CType *sct = ctype_rawchild(cts, ct);
+      if (ctype_isfp(sct->info)) {
+	if (sct->size == sz)
+	  return (sz >> 2);  /* Return 1 for float or 2 for double. */
+      } else if (ctype_isstruct(sct->info)) {
+	if (sct->size)
+	  return ccall_classify_struct(cts, sct);
+      } else {
+	break;
+      }
+    } else if (ctype_isbitfield(ct->info)) {
+      break;
+    } else if (ctype_isxattrib(ct->info, CTA_SUBTYPE)) {
+      CType *sct = ctype_rawchild(cts, ct);
+      if (sct->size)
+	return ccall_classify_struct(cts, sct);
+    }
+  }
+  return 0;
+}
+
+#endif
+
 /* -- x64 struct classification ------------------------------------------- */
 
 #if LJ_TARGET_X64 && !LJ_ABI_WIN
@@ -526,22 +584,26 @@ static unsigned int ccall_classify_struct(CTState *cts, CType *ct, CType *ctf)
   unsigned int r = 0, n = 0, isu = (ct->info & CTF_UNION);
   if ((ctf->info & CTF_VARARG)) goto noth;
   while (ct->sib) {
+    CType *sct;
     ct = ctype_get(cts, ct->sib);
     if (ctype_isfield(ct->info)) {
-      CType *sct = ctype_rawchild(cts, ct);
+      sct = ctype_rawchild(cts, ct);
       if (ctype_isfp(sct->info)) {
 	r |= sct->size;
 	if (!isu) n++; else if (n == 0) n = 1;
       } else if (ctype_iscomplex(sct->info)) {
 	r |= (sct->size >> 1);
 	if (!isu) n += 2; else if (n < 2) n = 2;
+      } else if (ctype_isstruct(sct->info)) {
+	goto substruct;
       } else {
 	goto noth;
       }
     } else if (ctype_isbitfield(ct->info)) {
       goto noth;
     } else if (ctype_isxattrib(ct->info, CTA_SUBTYPE)) {
-      CType *sct = ctype_rawchild(cts, ct);
+      sct = ctype_rawchild(cts, ct);
+    substruct:
       if (sct->size > 0) {
 	unsigned int s = ccall_classify_struct(cts, sct, ctf);
 	if (s <= 1) goto noth;
