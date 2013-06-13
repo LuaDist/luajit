@@ -160,8 +160,23 @@ set ( DASM ${CMAKE_CURRENT_SOURCE_DIR}/dynasm/dynasm.lua )
 set ( DASM_T ${CMAKE_CURRENT_SOURCE_DIR}/src/host/buildvm_arch.h )
 
 # 2DO: Proper detection of flags
-set ( DASM_FLAGS -D JIT -D FFI -D FPU -D HFABI -D VER= )
+set ( DASM_FLAGS -D FPU -D HFABI VER= )
 set ( DASM_ARCH x86 )
+
+if ( ${CMAKE_SYSTEM_PROCESSOR} MATCHES "armv6l" )
+  set ( DASM_ARCH arm )
+endif ()
+
+if ( NOT LUAJIT_DISABLE_JIT )
+  list ( APPEND DASM_FLAGS -D JIT )
+endif ()
+
+if ( NOT LUAJIT_DISABLE_FFI )
+  list ( APPEND DASM_FLAGS -D FFI )
+endif ()
+
+message ( ">>> ${CMAKE_SYSTEM_PROCESSOR} " )
+
 set ( DASM_DASC ${CMAKE_CURRENT_SOURCE_DIR}/src/vm_${DASM_ARCH}.dasc )
 
 if ( CMAKE_SIZEOF_VOID_P EQUAL 8 )
