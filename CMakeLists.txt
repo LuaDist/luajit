@@ -160,12 +160,15 @@ set ( DASM ${CMAKE_CURRENT_SOURCE_DIR}/dynasm/dynasm.lua )
 set ( DASM_T ${CMAKE_CURRENT_SOURCE_DIR}/src/host/buildvm_arch.h )
 
 # 2DO: Proper detection of flags
-set ( DASM_FLAGS -D FPU -D HFABI CACHE STRING "Flags for DASM." )
-set ( DASM_ARCH x86 CACHE STRING "Architecture for DASM." )
+set ( DASM_VER "" )
+set ( DASM_FLAGS -D FPU -D HFABI )
+set ( DASM_ARCH x86 )
 
 # Raspberry PI, ARM
 if ( ${CMAKE_SYSTEM_PROCESSOR} MATCHES "armv6l" )
   set ( DASM_ARCH arm )
+  list ( APPENF DASM_FLAGS -D DUALNUM )
+  set ( DASM_VER 60 )
 endif ()
 
 # Windows is ... special
@@ -190,7 +193,7 @@ if ( NOT LUAJIT_CPU_SSE2 )
   list ( APPEND DASM_FLAGS -D SSE2 )
 endif ()
 
-list ( APPEND DASM_FLAGS VER= )
+list ( APPEND DASM_FLAGS -D VER=${DASM_VER} )
 
 string ( REPLACE ";" " " DASM_FLAGS_STR "${DASM_FLAGS}")
 
@@ -201,7 +204,7 @@ set ( DASM_DASC ${CMAKE_CURRENT_SOURCE_DIR}/src/vm_${DASM_ARCH}.dasc )
 
 # Generate buildvm arch header
 add_custom_command(OUTPUT ${DASM_T}
-  COMMAND minilua ${DASM} "${DASM_FLAGS_STR}" -o ${DASM_T} ${DASM_DASC}
+  COMMAND minilua ${DASM} ${DASM_FLAGS} -o ${DASM_T} ${DASM_DASC}
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/dynasm
   DEPENDS minilua
 )
