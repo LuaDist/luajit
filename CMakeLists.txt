@@ -160,11 +160,22 @@ set ( DASM ${CMAKE_CURRENT_SOURCE_DIR}/dynasm/dynasm.lua )
 set ( DASM_T ${CMAKE_CURRENT_SOURCE_DIR}/src/host/buildvm_arch.h )
 
 # 2DO: Proper detection of flags
-set ( DASM_FLAGS -D FPU -D HFABI VER= )
-set ( DASM_ARCH x86 )
+set ( DASM_FLAGS -D FPU -D HFABI CACHE STRING "Flags for DASM." )
+set ( DASM_ARCH x86 CACHE STRING "Architecture for DASM." )
 
+# Raspberry PI, ARM
 if ( ${CMAKE_SYSTEM_PROCESSOR} MATCHES "armv6l" )
   set ( DASM_ARCH arm )
+endif ()
+
+# Windows is ... special
+if ( WIN32 )
+  list ( APPEND DASM_FLAGS -D WIN )
+endif ()
+
+# 32bit vs 64bit
+if ( CMAKE_SIZEOF_VOID_P EQUAL 8 )
+  list ( APPEND DASM_FLAGS -D P64 )
 endif ()
 
 if ( NOT LUAJIT_DISABLE_JIT )
@@ -175,20 +186,22 @@ if ( NOT LUAJIT_DISABLE_FFI )
   list ( APPEND DASM_FLAGS -D FFI )
 endif ()
 
-message ( ">>> ${CMAKE_SYSTEM_PROCESSOR} " )
+if ( NOT LUAJIT_CPU_SSE2 )
+  list ( APPEND DASM_FLAGS -D SSE2 )
+endif ()
+
+list ( APPEND DASM_FLAGS VER= )
+
+string ( REPLACE ";" " " DASM_FLAGS_STR "${DASM_FLAGS}")
+
+message ( "DASM_FLAGS: ${DASM_FLAGS_STR}")
+message ( "DASM_ARCH: ${DASM_ARCH}" )
 
 set ( DASM_DASC ${CMAKE_CURRENT_SOURCE_DIR}/src/vm_${DASM_ARCH}.dasc )
 
-if ( CMAKE_SIZEOF_VOID_P EQUAL 8 )
-  list ( APPEND DASM_FLAGS -D P64 )
-endif ()
-if ( WIN32 )
-  list ( APPEND DASM_FLAGS -D WIN )
-endif ()
-
 # Generate buildvm arch header
 add_custom_command(OUTPUT ${DASM_T}
-  COMMAND minilua ${DASM} ${DASM_FLAGS} -o ${DASM_T} ${DASM_DASC}
+  COMMAND minilua ${DASM} "${DASM_FLAGS_STR}" -o ${DASM_T} ${DASM_DASC}
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/dynasm
   DEPENDS minilua
 )
