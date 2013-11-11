@@ -9,6 +9,7 @@
 project ( luajit C ASM)
 cmake_minimum_required ( VERSION 2.8 )
 include ( cmake/dist.cmake )
+include ( lua )
 
 ## CONFIGURATION
 # Default configuration (we assume POSIX by default)
@@ -248,7 +249,7 @@ SET ( DEPS
 ## LuaJIT Library
 include_directories ( ${CMAKE_CURRENT_BINARY_DIR} dynasm src src/host )
 
-set ( LJCORE_C 
+set ( LJCORE_C
   src/lj_gc.c
   src/lj_err.c
   src/lj_char.c
