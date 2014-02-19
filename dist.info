@@ -11,7 +11,9 @@ maintainer = "Peter Drahoš"
 
 -- Offers functionality of the following packages
 provides = { 
-    "lua-5.1.5"
+    "lua-5.1.5",
+    "bit32-5.2.0",
+    "luaffi-1.0"
 }
 
 -- These packages conflict (shared library clash)
