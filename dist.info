@@ -1,0 +1,72 @@
+type = "x86"
+arch = "Windows"
+author = "Mike Pall"
+desc = "LuaJIT is JIT compiler for the Lua language."
+name = "luajit"
+conflicts = {
+[[lua]],
+}
+
+version = "2.0.2"
+maintainer = "Peter Drahoš"
+files = {
+Runtime = {
+[[bin\wluajit.exe]],
+[[bin\luajit.exe]],
+[[bin\liblua.dll]],
+}
+,
+Header = {
+[[include\lua.h]],
+[[include\luajit.h]],
+[[include\lua.hpp]],
+[[include\luaconf.h]],
+[[include\lualib.h]],
+[[include\lauxlib.h]],
+}
+,
+Other = {
+[[share\luajit\etc\\luajit.1]],
+[[share\luajit\etc\\luajit.ico]],
+[[share\luajit\etc\\luajit.pc]],
+}
+,
+Documentation = {
+[[share\luajit\doc\\bluequad-print.css]],
+[[share\luajit\doc\\bluequad.css]],
+[[share\luajit\doc\\changes.html]],
+[[share\luajit\doc\\contact.html]],
+[[share\luajit\doc\\extensions.html]],
+[[share\luajit\doc\\ext_c_api.html]],
+[[share\luajit\doc\\ext_ffi.html]],
+[[share\luajit\doc\\ext_ffi_api.html]],
+[[share\luajit\doc\\ext_ffi_semantics.html]],
+[[share\luajit\doc\\ext_ffi_tutorial.html]],
+[[share\luajit\doc\\ext_jit.html]],
+[[share\luajit\doc\\faq.html]],
+[[share\luajit\doc\\img\contact.png]],
+[[share\luajit\doc\\install.html]],
+[[share\luajit\doc\\luajit.html]],
+[[share\luajit\doc\\running.html]],
+[[share\luajit\doc\\status.html]],
+}
+,
+Data = {
+[[share\luajit\COPYRIGHT]],
+[[share\luajit\README.md]],
+}
+,
+Library = {
+[[lib\liblua.dll.a]],
+}
+,
+}
+
+license = "MIT/X11"
+provides = {
+[[lua-5.1.5]],
+[[bit32-5.2.0]],
+[[luaffi-1.0]],
+}
+
+url = "http://www.luajit.org"
