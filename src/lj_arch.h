@@ -1,6 +1,6 @@
 /*
 ** Target architecture selection.
-** Copyright (C) 2005-2014 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2017 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #ifndef _LJ_ARCH_H
@@ -67,9 +67,13 @@
 #elif defined(__MACH__) && defined(__APPLE__)
 #define LUAJIT_OS	LUAJIT_OS_OSX
 #elif (defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || \
-       defined(__NetBSD__) || defined(__OpenBSD__)) && !defined(__ORBIS__)
+       defined(__NetBSD__) || defined(__OpenBSD__) || \
+       defined(__DragonFly__)) && !defined(__ORBIS__)
 #define LUAJIT_OS	LUAJIT_OS_BSD
-#elif (defined(__sun__) && defined(__svr4__)) || defined(__CYGWIN__)
+#elif (defined(__sun__) && defined(__svr4__))
+#define LUAJIT_OS	LUAJIT_OS_POSIX
+#elif defined(__CYGWIN__)
+#define LJ_TARGET_CYGWIN	1
 #define LUAJIT_OS	LUAJIT_OS_POSIX
 #else
 #define LUAJIT_OS	LUAJIT_OS_OTHER
@@ -111,6 +115,11 @@
 #define NULL ((void*)0)
 #endif
 
+#ifdef __psp2__
+#define LJ_TARGET_PSVITA	1
+#define LJ_TARGET_CONSOLE	1
+#endif
+
 #if _XBOX_VER >= 200
 #define LJ_TARGET_XBOX360	1
 #define LJ_TARGET_CONSOLE	1
@@ -127,7 +136,7 @@
 #define LJ_ARCH_NAME		"x86"
 #define LJ_ARCH_BITS		32
 #define LJ_ARCH_ENDIAN		LUAJIT_LE
-#if LJ_TARGET_WINDOWS || __CYGWIN__
+#if LJ_TARGET_WINDOWS || LJ_TARGET_CYGWIN
 #define LJ_ABI_WIN		1
 #else
 #define LJ_ABI_WIN		0
@@ -145,7 +154,11 @@
 #define LJ_ARCH_NAME		"x64"
 #define LJ_ARCH_BITS		64
 #define LJ_ARCH_ENDIAN		LUAJIT_LE
-#define LJ_ABI_WIN		LJ_TARGET_WINDOWS
+#if LJ_TARGET_WINDOWS || LJ_TARGET_CYGWIN
+#define LJ_ABI_WIN		1
+#else
+#define LJ_ABI_WIN		0
+#endif
 #define LJ_TARGET_X64		1
 #define LJ_TARGET_X86ORX64	1
 #define LJ_TARGET_EHRETREG	0
@@ -175,7 +188,9 @@
 #define LJ_TARGET_UNIFYROT	2	/* Want only IR_BROR. */
 #define LJ_ARCH_NUMMODE		LJ_NUMMODE_DUAL
 
-#if __ARM_ARCH_7__ || __ARM_ARCH_7A__ || __ARM_ARCH_7R__ || __ARM_ARCH_7S__
+#if __ARM_ARCH____ARM_ARCH_8__ || __ARM_ARCH_8A__
+#define LJ_ARCH_VERSION		80
+#elif __ARM_ARCH_7__ || __ARM_ARCH_7A__ || __ARM_ARCH_7R__ || __ARM_ARCH_7S__ || __ARM_ARCH_7VE__
 #define LJ_ARCH_VERSION		70
 #elif __ARM_ARCH_6T2__
 #define LJ_ARCH_VERSION		61
@@ -324,7 +339,7 @@
 #if defined(_SOFT_FLOAT) || defined(_SOFT_DOUBLE)
 #error "No support for PowerPC CPUs without double-precision FPU"
 #endif
-#if defined(_LITTLE_ENDIAN)
+#if defined(_LITTLE_ENDIAN) && (!defined(_BYTE_ORDER) || (_BYTE_ORDER == _LITTLE_ENDIAN))
 #error "No support for little-endian PowerPC"
 #endif
 #if defined(_LP64)
@@ -333,6 +348,9 @@
 #elif LJ_TARGET_MIPS
 #if defined(__mips_soft_float)
 #error "No support for MIPS CPUs without FPU"
+#endif
+#if defined(_LP64)
+#error "No support for MIPS64"
 #endif
 #endif
 #endif
@@ -411,8 +429,16 @@
 #if defined(__symbian__)
 #define LUAJIT_NO_EXP2
 #endif
+#if LJ_TARGET_CONSOLE || (LJ_TARGET_IOS && __IPHONE_OS_VERSION_MIN_REQUIRED >= __IPHONE_8_0)
+#define LJ_NO_SYSTEM		1
+#endif
 
-#if defined(LUAJIT_NO_UNWIND) || defined(__symbian__) || LJ_TARGET_IOS || LJ_TARGET_PS3
+#if !defined(LUAJIT_NO_UNWIND) && __GNU_COMPACT_EH__
+/* NYI: no support for compact unwind specification, yet. */
+#define LUAJIT_NO_UNWIND	1
+#endif
+
+#if defined(LUAJIT_NO_UNWIND) || defined(__symbian__) || LJ_TARGET_IOS || LJ_TARGET_PS3 || LJ_TARGET_PS4
 #define LJ_NO_UNWIND		1
 #endif
 

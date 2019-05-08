@@ -1,6 +1,6 @@
 /*
 ** PPC IR assembler (SSA IR -> machine code).
-** Copyright (C) 2005-2014 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2017 Mike Pall. See Copyright Notice in luajit.h
 */
 
 /* -- Register allocator extensions --------------------------------------- */
@@ -49,6 +49,8 @@ static void asm_exitstub_setup(ASMState *as, ExitNo nexits)
 {
   ExitNo i;
   MCode *mxp = as->mctop;
+  if (mxp - (nexits + 3 + MCLIM_REDZONE) < as->mclim)
+    asm_mclimit(as);
   /* 1: mflr r0; bl ->vm_exit_handler; li r0, traceno; bl <1; bl <1; ... */
   for (i = nexits-1; (int32_t)i >= 0; i--)
     *--mxp = PPCI_BL|(((-3-i)&0x00ffffffu)<<2);
@@ -296,7 +298,7 @@ static void asm_gencall(ASMState *as, const CCallInfo *ci, IRRef *args)
 static void asm_setupresult(ASMState *as, IRIns *ir, const CCallInfo *ci)
 {
   RegSet drop = RSET_SCRATCH;
-  int hiop = ((ir+1)->o == IR_HIOP);
+  int hiop = ((ir+1)->o == IR_HIOP && !irt_isnil((ir+1)->t));
   if ((ci->flags & CCI_NOFPRCLOBBER))
     drop &= ~RSET_FPR;
   if (ra_hasreg(ir->r))
@@ -787,7 +789,6 @@ static void asm_newref(ASMState *as, IRIns *ir)
 
 static void asm_uref(ASMState *as, IRIns *ir)
 {
-  /* NYI: Check that UREFO is still open and not aliasing a slot. */
   Reg dest = ra_dest(as, ir, RSET_GPR);
   if (irref_isk(ir->op1)) {
     GCfunc *fn = ir_kfunc(IR(ir->op1));

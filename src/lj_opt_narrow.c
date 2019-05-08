@@ -1,7 +1,7 @@
 /*
 ** NARROW: Narrowing of numbers to integers (double to int32_t).
 ** STRIPOV: Stripping of overflow checks.
-** Copyright (C) 2005-2014 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2017 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #define lj_opt_narrow_c
@@ -205,7 +205,6 @@ typedef struct NarrowConv {
   jit_State *J;		/* JIT compiler state. */
   NarrowIns *sp;	/* Current stack pointer. */
   NarrowIns *maxsp;	/* Maximum stack pointer minus redzone. */
-  int lim;		/* Limit on the number of emitted conversions. */
   IRRef mode;		/* Conversion mode (IRCONV_*). */
   IRType t;		/* Destination type: IRT_INT or IRT_I64. */
   NarrowIns stack[NARROW_MAX_STACK];  /* Stack holding stack-machine code. */
@@ -247,10 +246,16 @@ static void narrow_stripov_backprop(NarrowConv *nc, IRRef ref, int depth)
     if (bp) {
       ref = bp->val;
     } else if (++depth < NARROW_MAX_BACKPROP && nc->sp < nc->maxsp) {
+      NarrowIns *savesp = nc->sp;
       narrow_stripov_backprop(nc, ir->op1, depth);
-      narrow_stripov_backprop(nc, ir->op2, depth);
-      *nc->sp++ = NARROWINS(IRT(ir->o - IR_ADDOV + IR_ADD, IRT_INT), ref);
-      return;
+      if (nc->sp < nc->maxsp) {
+	narrow_stripov_backprop(nc, ir->op2, depth);
+	if (nc->sp < nc->maxsp) {
+	  *nc->sp++ = NARROWINS(IRT(ir->o - IR_ADDOV + IR_ADD, IRT_INT), ref);
+	  return;
+	}
+      }
+      nc->sp = savesp;  /* Path too deep, need to backtrack. */
     }
   }
   *nc->sp++ = NARROWINS(NARROW_REF, ref);
@@ -262,6 +267,8 @@ static int narrow_conv_backprop(NarrowConv *nc, IRRef ref, int depth)
   jit_State *J = nc->J;
   IRIns *ir = IR(ref);
   IRRef cref;
+
+  if (nc->sp >= nc->maxsp) return 10;  /* Path too deep. */
 
   /* Check the easy cases first. */
   if (ir->o == IR_CONV && (ir->op2 & IRCONV_SRCMASK) == IRT_INT) {
@@ -334,7 +341,7 @@ static int narrow_conv_backprop(NarrowConv *nc, IRRef ref, int depth)
       NarrowIns *savesp = nc->sp;
       int count = narrow_conv_backprop(nc, ir->op1, depth);
       count += narrow_conv_backprop(nc, ir->op2, depth);
-      if (count <= nc->lim) {  /* Limit total number of conversions. */
+      if (count <= 1) {  /* Limit total number of conversions. */
 	*nc->sp++ = NARROWINS(IRT(ir->o, nc->t), ref);
 	return count;
       }
@@ -406,12 +413,10 @@ TRef LJ_FASTCALL lj_opt_narrow_convert(jit_State *J)
     nc.t = irt_type(fins->t);
     if (fins->o == IR_TOBIT) {
       nc.mode = IRCONV_TOBIT;  /* Used only in the backpropagation cache. */
-      nc.lim = 2;  /* TOBIT can use a more optimistic rule. */
     } else {
       nc.mode = fins->op2;
-      nc.lim = 1;
     }
-    if (narrow_conv_backprop(&nc, fins->op1, 0) <= nc.lim)
+    if (narrow_conv_backprop(&nc, fins->op1, 0) <= 1)
       return narrow_conv_emit(J, &nc);
   }
   return NEXTFOLD;
@@ -496,8 +501,7 @@ TRef LJ_FASTCALL lj_opt_narrow_cindex(jit_State *J, TRef tr)
 {
   lua_assert(tref_isnumber(tr));
   if (tref_isnum(tr))
-    return emitir(IRT(IR_CONV, IRT_INTP), tr,
-		  (IRT_INTP<<5)|IRT_NUM|IRCONV_TRUNC|IRCONV_ANY);
+    return emitir(IRT(IR_CONV, IRT_INTP), tr, (IRT_INTP<<5)|IRT_NUM|IRCONV_ANY);
   /* Undefined overflow semantics allow stripping of ADDOV, SUBOV and MULOV. */
   return narrow_stripov(J, tr, IR_MULOV,
 			LJ_64 ? ((IRT_INTP<<5)|IRT_INT|IRCONV_SEXT) :
@@ -513,18 +517,24 @@ static int numisint(lua_Number n)
   return (n == (lua_Number)lj_num2int(n));
 }
 
+/* Convert string to number. Error out for non-numeric string values. */
+static TRef conv_str_tonum(jit_State *J, TRef tr, TValue *o)
+{
+  if (tref_isstr(tr)) {
+    tr = emitir(IRTG(IR_STRTO, IRT_NUM), tr, 0);
+    /* Would need an inverted STRTO for this rare and useless case. */
+    if (!lj_strscan_num(strV(o), o))  /* Convert in-place. Value used below. */
+      lj_trace_err(J, LJ_TRERR_BADTYPE);  /* Punt if non-numeric. */
+  }
+  return tr;
+}
+
 /* Narrowing of arithmetic operations. */
 TRef lj_opt_narrow_arith(jit_State *J, TRef rb, TRef rc,
 			 TValue *vb, TValue *vc, IROp op)
 {
-  if (tref_isstr(rb)) {
-    rb = emitir(IRTG(IR_STRTO, IRT_NUM), rb, 0);
-    lj_strscan_num(strV(vb), vb);
-  }
-  if (tref_isstr(rc)) {
-    rc = emitir(IRTG(IR_STRTO, IRT_NUM), rc, 0);
-    lj_strscan_num(strV(vc), vc);
-  }
+  rb = conv_str_tonum(J, rb, vb);
+  rc = conv_str_tonum(J, rc, vc);
   /* Must not narrow MUL in non-DUALNUM variant, because it loses -0. */
   if ((op >= IR_ADD && op <= (LJ_DUALNUM ? IR_MUL : IR_SUB)) &&
       tref_isinteger(rb) && tref_isinteger(rc) &&
@@ -539,10 +549,7 @@ TRef lj_opt_narrow_arith(jit_State *J, TRef rb, TRef rc,
 /* Narrowing of unary minus operator. */
 TRef lj_opt_narrow_unm(jit_State *J, TRef rc, TValue *vc)
 {
-  if (tref_isstr(rc)) {
-    rc = emitir(IRTG(IR_STRTO, IRT_NUM), rc, 0);
-    lj_strscan_num(strV(vc), vc);
-  }
+  rc = conv_str_tonum(J, rc, vc);
   if (tref_isinteger(rc)) {
     if ((uint32_t)numberVint(vc) != 0x80000000u)
       return emitir(IRTGI(IR_SUBOV), lj_ir_kint(J, 0), rc);
@@ -552,11 +559,11 @@ TRef lj_opt_narrow_unm(jit_State *J, TRef rc, TValue *vc)
 }
 
 /* Narrowing of modulo operator. */
-TRef lj_opt_narrow_mod(jit_State *J, TRef rb, TRef rc, TValue *vc)
+TRef lj_opt_narrow_mod(jit_State *J, TRef rb, TRef rc, TValue *vb, TValue *vc)
 {
   TRef tmp;
-  if (tvisstr(vc) && !lj_strscan_num(strV(vc), vc))
-    lj_trace_err(J, LJ_TRERR_BADTYPE);
+  rb = conv_str_tonum(J, rb, vb);
+  rc = conv_str_tonum(J, rc, vc);
   if ((LJ_DUALNUM || (J->flags & JIT_F_OPT_NARROW)) &&
       tref_isinteger(rb) && tref_isinteger(rc) &&
       (tvisint(vc) ? intV(vc) != 0 : !tviszero(vc))) {
@@ -573,10 +580,11 @@ TRef lj_opt_narrow_mod(jit_State *J, TRef rb, TRef rc, TValue *vc)
 }
 
 /* Narrowing of power operator or math.pow. */
-TRef lj_opt_narrow_pow(jit_State *J, TRef rb, TRef rc, TValue *vc)
+TRef lj_opt_narrow_pow(jit_State *J, TRef rb, TRef rc, TValue *vb, TValue *vc)
 {
-  if (tvisstr(vc) && !lj_strscan_num(strV(vc), vc))
-    lj_trace_err(J, LJ_TRERR_BADTYPE);
+  rb = conv_str_tonum(J, rb, vb);
+  rb = lj_ir_tonum(J, rb);  /* Left arg is always treated as an FP number. */
+  rc = conv_str_tonum(J, rc, vc);
   /* Narrowing must be unconditional to preserve (-x)^i semantics. */
   if (tvisint(vc) || numisint(numV(vc))) {
     int checkrange = 0;
@@ -587,8 +595,6 @@ TRef lj_opt_narrow_pow(jit_State *J, TRef rb, TRef rc, TValue *vc)
       checkrange = 1;
     }
     if (!tref_isinteger(rc)) {
-      if (tref_isstr(rc))
-	rc = emitir(IRTG(IR_STRTO, IRT_NUM), rc, 0);
       /* Guarded conversion to integer! */
       rc = emitir(IRTGI(IR_CONV), rc, IRCONV_INT_NUM|IRCONV_CHECK);
     }
