@@ -45,6 +45,7 @@ option ( LUA_USE_ASSERT "Turn on assertions for the whole LuaJIT VM. This signif
 
 option ( LUAJIT_CPU_SSE2 "Disable SSE2." OFF )
 option ( LUAJIT_CPU_NOCMOV "Disable NOCMOV." OFF )
+option ( LUA_SHARED_LIB "Build liblua as a dynamically linked library." ON )
 
 # Tunable variables
 set ( LUAI_MAXSTACK 65500 CACHE NUMBER "Max. # of stack slots for a thread (<64K)." )
@@ -58,6 +59,12 @@ set ( LUA_DIRSEP "/" )
 set ( LUA_MODULE_SUFFIX ${CMAKE_SHARED_MODULE_SUFFIX} )
 set ( LUA_LDIR ${INSTALL_LMOD} )
 set ( LUA_CDIR ${INSTALL_CMOD} )
+
+if ( LUA_SHARED_LIB )
+  set ( LUA_LIB_TYPE SHARED )
+else ()
+  set ( LUA_LIB_TYPE STATIC )
+endif ()
 
 if ( LUA_USE_RELATIVE_LOADLIB )
   # This will set up relative paths to lib
@@ -303,7 +310,7 @@ set ( LJCORE_C
   ${LJLIB_C}
 )
 
-add_library ( liblua SHARED ${LJCORE_C} ${DEPS} )
+add_library ( liblua ${LUA_LIB_TYPE} ${LJCORE_C} ${DEPS} )
 target_link_libraries ( liblua ${LIBS} )
 set_target_properties ( liblua PROPERTIES OUTPUT_NAME lua CLEAN_DIRECT_OUTPUT 1 )
 
