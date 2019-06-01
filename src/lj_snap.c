@@ -1,6 +1,6 @@
 /*
 ** Snapshot handling.
-** Copyright (C) 2005-2014 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2017 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #define lj_snap_c
@@ -25,9 +25,6 @@
 #include "lj_ctype.h"
 #include "lj_cdata.h"
 #endif
-
-/* Some local macros to save typing. Undef'd at the end. */
-#define IR(ref)		(&J->cur.ir[(ref)])
 
 /* Pass IR on to next optimization in chain (FOLD). */
 #define emitir(ot, a, b)	(lj_ir_set(J, (ot), (a), (b)), lj_opt_fold(J))
@@ -73,7 +70,7 @@ static MSize snapshot_slots(jit_State *J, SnapEntry *map, BCReg nslots)
     IRRef ref = tref_ref(tr);
     if (ref) {
       SnapEntry sn = SNAP_TR(s, tr);
-      IRIns *ir = IR(ref);
+      IRIns *ir = &J->cur.ir[ref];
       if (!(sn & (SNAP_CONT|SNAP_FRAME)) &&
 	  ir->o == IR_SLOAD && ir->op1 == s && ref > retf) {
 	/* No need to snapshot unmodified non-inherited slots. */
@@ -104,8 +101,6 @@ static BCReg snapshot_framelinks(jit_State *J, SnapEntry *map)
     if (frame_islua(frame)) {
       map[f++] = SNAP_MKPC(frame_pc(frame));
       frame = frame_prevl(frame);
-      if (frame + funcproto(frame_func(frame))->framesize > ftop)
-	ftop = frame + funcproto(frame_func(frame))->framesize;
     } else if (frame_iscont(frame)) {
       map[f++] = SNAP_MKFTSZ(frame_ftsz(frame));
       map[f++] = SNAP_MKPC(frame_contpc(frame));
@@ -114,7 +109,10 @@ static BCReg snapshot_framelinks(jit_State *J, SnapEntry *map)
       lua_assert(!frame_isc(frame));
       map[f++] = SNAP_MKFTSZ(frame_ftsz(frame));
       frame = frame_prevd(frame);
+      continue;
     }
+    if (frame + funcproto(frame_func(frame))->framesize > ftop)
+      ftop = frame + funcproto(frame_func(frame))->framesize;
   }
   lua_assert(f == (MSize)(1 + J->framedepth));
   return (BCReg)(ftop - lim);
@@ -131,12 +129,12 @@ static void snapshot_stack(jit_State *J, SnapShot *snap, MSize nsnapmap)
   p = &J->cur.snapmap[nsnapmap];
   nent = snapshot_slots(J, p, nslots);
   snap->topslot = (uint8_t)snapshot_framelinks(J, p + nent);
-  snap->mapofs = (uint16_t)nsnapmap;
+  snap->mapofs = (uint32_t)nsnapmap;
   snap->ref = (IRRef1)J->cur.nins;
   snap->nent = (uint8_t)nent;
   snap->nslots = (uint8_t)nslots;
   snap->count = 0;
-  J->cur.nsnapmap = (uint16_t)(nsnapmap + nent + 1 + J->framedepth);
+  J->cur.nsnapmap = (uint32_t)(nsnapmap + nent + 1 + J->framedepth);
 }
 
 /* Add or merge a snapshot. */
@@ -296,7 +294,7 @@ void lj_snap_shrink(jit_State *J)
   snap->nent = (uint8_t)m;
   nlim = J->cur.nsnapmap - snap->mapofs - 1;
   while (n <= nlim) map[m++] = map[n++];  /* Move PC + frame links down. */
-  J->cur.nsnapmap = (uint16_t)(snap->mapofs + m);  /* Free up space in map. */
+  J->cur.nsnapmap = (uint32_t)(snap->mapofs + m);  /* Free up space in map. */
 }
 
 /* -- Snapshot access ----------------------------------------------------- */
@@ -403,24 +401,24 @@ static TRef snap_pref(jit_State *J, GCtrace *T, SnapEntry *map, MSize nmax,
 }
 
 /* Check whether a sunk store corresponds to an allocation. Slow path. */
-static int snap_sunk_store2(jit_State *J, IRIns *ira, IRIns *irs)
+static int snap_sunk_store2(GCtrace *T, IRIns *ira, IRIns *irs)
 {
   if (irs->o == IR_ASTORE || irs->o == IR_HSTORE ||
       irs->o == IR_FSTORE || irs->o == IR_XSTORE) {
-    IRIns *irk = IR(irs->op1);
+    IRIns *irk = &T->ir[irs->op1];
     if (irk->o == IR_AREF || irk->o == IR_HREFK)
-      irk = IR(irk->op1);
-    return (IR(irk->op1) == ira);
+      irk = &T->ir[irk->op1];
+    return (&T->ir[irk->op1] == ira);
   }
   return 0;
 }
 
 /* Check whether a sunk store corresponds to an allocation. Fast path. */
-static LJ_AINLINE int snap_sunk_store(jit_State *J, IRIns *ira, IRIns *irs)
+static LJ_AINLINE int snap_sunk_store(GCtrace *T, IRIns *ira, IRIns *irs)
 {
   if (irs->s != 255)
     return (ira + irs->s == irs);  /* Fast check. */
-  return snap_sunk_store2(J, ira, irs);
+  return snap_sunk_store2(T, ira, irs);
 }
 
 /* Replay snapshot state to setup side trace. */
@@ -483,7 +481,7 @@ void lj_snap_replay(jit_State *J, GCtrace *T)
 	} else {
 	  IRIns *irs;
 	  for (irs = ir+1; irs < irlast; irs++)
-	    if (irs->r == RID_SINK && snap_sunk_store(J, ir, irs)) {
+	    if (irs->r == RID_SINK && snap_sunk_store(T, ir, irs)) {
 	      if (snap_pref(J, T, map, nent, seen, irs->op2) == 0)
 		snap_pref(J, T, map, nent, seen, T->ir[irs->op2].op1);
 	      else if ((LJ_SOFTFP || (LJ_32 && LJ_HASFFI)) &&
@@ -517,13 +515,13 @@ void lj_snap_replay(jit_State *J, GCtrace *T)
 	    op2 = emitir_raw(IRT(IR_HIOP, IRT_I64), op2,
 			     snap_pref(J, T, map, nent, seen, (ir+1)->op2));
 	  }
-	  J->slot[snap_slot(sn)] = emitir(ir->ot, op1, op2);
+	  J->slot[snap_slot(sn)] = emitir(ir->ot & ~(IRT_MARK|IRT_ISPHI), op1, op2);
 	} else {
 	  IRIns *irs;
 	  TRef tr = emitir(ir->ot, op1, op2);
 	  J->slot[snap_slot(sn)] = tr;
 	  for (irs = ir+1; irs < irlast; irs++)
-	    if (irs->r == RID_SINK && snap_sunk_store(J, ir, irs)) {
+	    if (irs->r == RID_SINK && snap_sunk_store(T, ir, irs)) {
 	      IRIns *irr = &T->ir[irs->op1];
 	      TRef val, key = irr->op2, tmp = tr;
 	      if (irr->o != IR_FREF) {
@@ -725,7 +723,7 @@ static void snap_unsink(jit_State *J, GCtrace *T, ExitState *ex,
     } else {
       IRIns *irs, *irlast = &T->ir[T->snap[snapno].ref];
       for (irs = ir+1; irs < irlast; irs++)
-	if (irs->r == RID_SINK && snap_sunk_store(J, ir, irs)) {
+	if (irs->r == RID_SINK && snap_sunk_store(T, ir, irs)) {
 	  IRIns *iro = &T->ir[T->ir[irs->op1].op2];
 	  uint8_t *p = (uint8_t *)cd;
 	  CTSize szs;
@@ -758,7 +756,7 @@ static void snap_unsink(jit_State *J, GCtrace *T, ExitState *ex,
     settabV(J->L, o, t);
     irlast = &T->ir[T->snap[snapno].ref];
     for (irs = ir+1; irs < irlast; irs++)
-      if (irs->r == RID_SINK && snap_sunk_store(J, ir, irs)) {
+      if (irs->r == RID_SINK && snap_sunk_store(T, ir, irs)) {
 	IRIns *irk = &T->ir[irs->op1];
 	TValue tmp, *val;
 	lua_assert(irs->o == IR_ASTORE || irs->o == IR_HSTORE ||
@@ -858,7 +856,6 @@ const BCIns *lj_snap_restore(jit_State *J, void *exptr)
   return pc;
 }
 
-#undef IR
 #undef emitir_raw
 #undef emitir
 

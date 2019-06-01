@@ -1,6 +1,6 @@
 /*
 ** SINK: Allocation Sinking and Store Sinking.
-** Copyright (C) 2005-2014 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2017 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #define lj_opt_sink_c
@@ -100,8 +100,8 @@ static void sink_mark_ins(jit_State *J)
 	   (LJ_32 && ir+1 < irlast && (ir+1)->o == IR_HIOP &&
 	    !sink_checkphi(J, ir, (ir+1)->op2))))
 	irt_setmark(ir->t);  /* Mark ineligible allocation. */
-      /* fallthrough */
 #endif
+      /* fallthrough */
     case IR_USTORE:
       irt_setmark(IR(ir->op2)->t);  /* Mark stored value. */
       break;
@@ -153,10 +153,9 @@ static void sink_remark_phi(jit_State *J)
     remark = 0;
     for (ir = IR(J->cur.nins-1); ir->o == IR_PHI; ir--) {
       IRIns *irl = IR(ir->op1), *irr = IR(ir->op2);
-      if (((irl->t.irt ^ irr->t.irt) & IRT_MARK))
-	remark = 1;
-      else if (irl->prev == irr->prev)
+      if (!((irl->t.irt ^ irr->t.irt) & IRT_MARK) && irl->prev == irr->prev)
 	continue;
+      remark |= (~(irl->t.irt & irr->t.irt) & IRT_MARK);
       irt_setmark(IR(ir->op1)->t);
       irt_setmark(IR(ir->op2)->t);
     }

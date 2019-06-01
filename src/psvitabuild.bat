@@ -1,11 +1,11 @@
-@rem Script to build LuaJIT with the PS4 SDK.
+@rem Script to build LuaJIT with the PS Vita SDK.
 @rem Donated to the public domain.
 @rem
-@rem Open a "Visual Studio .NET Command Prompt" (64 bit host compiler)
+@rem Open a "Visual Studio .NET Command Prompt" (32 bit host compiler)
 @rem Then cd to this directory and run this script.
 
 @if not defined INCLUDE goto :FAIL
-@if not defined SCE_ORBIS_SDK_DIR goto :FAIL
+@if not defined SCE_PSP2_SDK_DIR goto :FAIL
 
 @setlocal
 @rem ---- Host compiler ----
@@ -23,15 +23,15 @@
 if exist minilua.exe.manifest^
   %LJMT% -manifest minilua.exe.manifest -outputresource:minilua.exe
 
-@rem Check for 64 bit host compiler.
+@rem Check for 32 bit host compiler.
 @minilua
-@if not errorlevel 8 goto :FAIL
+@if errorlevel 8 goto :FAIL
 
-@set DASMFLAGS=-D P64 -D NO_UNWIND
-minilua %DASM% -LN %DASMFLAGS% -o host\buildvm_arch.h vm_x86.dasc
+@set DASMFLAGS=-D FPU -D HFABI
+minilua %DASM% -LN %DASMFLAGS% -o host\buildvm_arch.h vm_arm.dasc
 @if errorlevel 1 goto :BAD
 
-%LJCOMPILE% /I "." /I %DASMDIR% -DLUAJIT_TARGET=LUAJIT_ARCH_X64 -DLUAJIT_OS=LUAJIT_OS_OTHER -DLUAJIT_DISABLE_JIT -DLUAJIT_DISABLE_FFI -DLUAJIT_NO_UNWIND host\buildvm*.c
+%LJCOMPILE% /I "." /I %DASMDIR% -DLUAJIT_TARGET=LUAJIT_ARCH_ARM -DLUAJIT_OS=LUAJIT_OS_OTHER -DLUAJIT_DISABLE_JIT -DLUAJIT_DISABLE_FFI -DLJ_TARGET_PSVITA=1 host\buildvm*.c
 @if errorlevel 1 goto :BAD
 %LJLINK% /out:buildvm.exe buildvm*.obj
 @if errorlevel 1 goto :BAD
@@ -54,11 +54,11 @@ buildvm -m folddef -o lj_folddef.h lj_opt_fold.c
 @if errorlevel 1 goto :BAD
 
 @rem ---- Cross compiler ----
-@set LJCOMPILE="%SCE_ORBIS_SDK_DIR%\host_tools\bin\orbis-clang" -c -Wall -DLUAJIT_DISABLE_FFI
-@set LJLIB="%SCE_ORBIS_SDK_DIR%\host_tools\bin\orbis-ar" rcus
+@set LJCOMPILE="%SCE_PSP2_SDK_DIR%\host_tools\build\bin\psp2snc" -c -w -DLUAJIT_DISABLE_FFI -DLUAJIT_USE_SYSMALLOC
+@set LJLIB="%SCE_PSP2_SDK_DIR%\host_tools\build\bin\psp2ld32" -r --output=
 @set INCLUDE=""
 
-orbis-as -o lj_vm.o lj_vm.s
+"%SCE_PSP2_SDK_DIR%\host_tools\build\bin\psp2as" -o lj_vm.o lj_vm.s
 
 @if "%1" neq "debug" goto :NODEBUG
 @shift
@@ -70,25 +70,15 @@ goto :BUILD
 @set TARGETLIB=libluajit.a
 :BUILD
 del %TARGETLIB%
-@if "%1"=="amalg" goto :AMALG
-for %%f in (lj_*.c lib_*.c) do (
-  %LJCOMPILE% %%f
-  @if errorlevel 1 goto :BAD
-)
 
-%LJLIB% %TARGETLIB% lj_*.o lib_*.o
-@if errorlevel 1 goto :BAD
-@goto :NOAMALG
-:AMALG
 %LJCOMPILE% ljamalg.c
 @if errorlevel 1 goto :BAD
-%LJLIB% %TARGETLIB% ljamalg.o lj_vm.o
+%LJLIB%%TARGETLIB% ljamalg.o lj_vm.o
 @if errorlevel 1 goto :BAD
-:NOAMALG
 
 @del *.o *.obj *.manifest minilua.exe buildvm.exe
 @echo.
-@echo === Successfully built LuaJIT for PS4 ===
+@echo === Successfully built LuaJIT for PS Vita ===
 
 @goto :END
 :BAD
@@ -99,5 +89,5 @@ for %%f in (lj_*.c lib_*.c) do (
 @goto :END
 :FAIL
 @echo To run this script you must open a "Visual Studio .NET Command Prompt"
-@echo (64 bit host compiler). The PS4 Orbis SDK must be installed, too.
+@echo (32 bit host compiler). The PS Vita SDK must be installed, too.
 :END

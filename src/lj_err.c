@@ -1,6 +1,6 @@
 /*
 ** Error handling.
-** Copyright (C) 2005-2014 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2017 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #define lj_err_c
@@ -57,10 +57,10 @@
 ** EXT cannot be enabled on WIN32 since system exceptions use code-driven SEH.
 ** EXT is mandatory on WIN64 since the calling convention has an abundance
 ** of callee-saved registers (rbx, rbp, rsi, rdi, r12-r15, xmm6-xmm15).
-** EXT is mandatory on POSIX/x64 since the interpreter doesn't save r12/r13.
+** The POSIX/x64 interpreter only saves r12/r13 for INT (e.g. PS4).
 */
 
-#if defined(__GNUC__) && (LJ_TARGET_X64 || defined(LUAJIT_UNWIND_EXTERNAL))
+#if defined(__GNUC__) && (LJ_TARGET_X64 || defined(LUAJIT_UNWIND_EXTERNAL)) && !LJ_NO_UNWIND
 #define LJ_UNWIND_EXT	1
 #elif LJ_TARGET_X64 && LJ_TARGET_WINDOWS
 #define LJ_UNWIND_EXT	1
@@ -153,6 +153,7 @@ static void *err_unwind(lua_State *L, void *stopcf, int errcode)
       if ((frame-1)->u32.lo == LJ_CONT_FFI_CALLBACK)
 	goto unwind_c;
 #endif
+      /* fallthrough */
     case FRAME_VARG:  /* Vararg frame. */
       frame = frame_prevd(frame);
       break;
@@ -186,7 +187,7 @@ static void *err_unwind(lua_State *L, void *stopcf, int errcode)
 
 /* -- External frame unwinding -------------------------------------------- */
 
-#if defined(__GNUC__) && !LJ_NO_UNWIND && !LJ_TARGET_WINDOWS
+#if defined(__GNUC__) && !LJ_NO_UNWIND && !LJ_ABI_WIN
 
 /*
 ** We have to use our own definitions instead of the mandatory (!) unwind.h,
@@ -352,7 +353,7 @@ LJ_FUNCA int lj_err_unwind_arm(int state, void *ucb, _Unwind_Context *ctx)
 
 #endif
 
-#elif LJ_TARGET_X64 && LJ_TARGET_WINDOWS
+#elif LJ_TARGET_X64 && LJ_ABI_WIN
 
 /*
 ** Someone in Redmond owes me several days of my life. A lot of this is
@@ -378,7 +379,7 @@ typedef struct UndocumentedDispatcherContext {
   ULONG64 EstablisherFrame;
   ULONG64 TargetIp;
   PCONTEXT ContextRecord;
-  PEXCEPTION_ROUTINE LanguageHandler;
+  void (*LanguageHandler)(void);
   PVOID HandlerData;
   PUNWIND_HISTORY_TABLE HistoryTable;
   ULONG ScopeIndex;
@@ -417,7 +418,9 @@ LJ_FUNCA EXCEPTION_DISPOSITION lj_err_unwind_win64(EXCEPTION_RECORD *rec,
     if (cf2) {  /* We catch it, so start unwinding the upper frames. */
       if (rec->ExceptionCode == LJ_MSVC_EXCODE ||
 	  rec->ExceptionCode == LJ_GCC_EXCODE) {
+#if LJ_TARGET_WINDOWS
 	__DestructExceptionObject(rec, 1);
+#endif
 	setstrV(L, L->top++, lj_err_str(L, LJ_ERR_ERRCPP));
       } else if (!LJ_EXCODE_CHECK(rec->ExceptionCode)) {
 	/* Don't catch access violations etc. */
@@ -499,8 +502,7 @@ static ptrdiff_t finderrfunc(lua_State *L)
 {
   cTValue *frame = L->base-1, *bot = tvref(L->stack);
   void *cf = L->cframe;
-  while (frame > bot) {
-    lua_assert(cf != NULL);
+  while (frame > bot && cf) {
     while (cframe_nres(cframe_raw(cf)) < 0) {  /* cframe without frame? */
       if (frame >= restorestack(L, -cframe_nres(cf)))
 	break;
@@ -518,12 +520,14 @@ static ptrdiff_t finderrfunc(lua_State *L)
     case FRAME_C:
       cf = cframe_prev(cf);
       /* fallthrough */
+    case FRAME_VARG:
+      frame = frame_prevd(frame);
+      break;
     case FRAME_CONT:
 #if LJ_HASFFI
       if ((frame-1)->u32.lo == LJ_CONT_FFI_CALLBACK)
 	cf = cframe_prev(cf);
 #endif
-    case FRAME_VARG:
       frame = frame_prevd(frame);
       break;
     case FRAME_CP:
@@ -725,9 +729,23 @@ LJ_NOINLINE void lj_err_arg(lua_State *L, int narg, ErrMsg em)
 /* Typecheck error for arguments. */
 LJ_NOINLINE void lj_err_argtype(lua_State *L, int narg, const char *xname)
 {
-  TValue *o = narg < 0 ? L->top + narg : L->base + narg-1;
-  const char *tname = o < L->top ? lj_typename(o) : lj_obj_typename[0];
-  const char *msg = lj_str_pushf(L, err2msg(LJ_ERR_BADTYPE), xname, tname);
+  const char *tname, *msg;
+  if (narg <= LUA_REGISTRYINDEX) {
+    if (narg >= LUA_GLOBALSINDEX) {
+      tname = lj_obj_itypename[~LJ_TTAB];
+    } else {
+      GCfunc *fn = curr_func(L);
+      int idx = LUA_GLOBALSINDEX - narg;
+      if (idx <= fn->c.nupvalues)
+	tname = lj_typename(&fn->c.upvalue[idx-1]);
+      else
+	tname = lj_obj_typename[0];
+    }
+  } else {
+    TValue *o = narg < 0 ? L->top + narg : L->base + narg-1;
+    tname = o < L->top ? lj_typename(o) : lj_obj_typename[0];
+  }
+  msg = lj_str_pushf(L, err2msg(LJ_ERR_BADTYPE), xname, tname);
   err_argmsg(L, narg, msg);
 }
 

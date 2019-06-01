@@ -1,10 +1,9 @@
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
 <html>
 <head>
-<title>Status &amp; Roadmap</title>
+<title>Status</title>
 <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
-<meta name="Author" content="Mike Pall">
-<meta name="Copyright" content="Copyright (C) 2005-2014, Mike Pall">
+<meta name="Copyright" content="Copyright (C) 2005-2018">
 <meta name="Language" content="en">
 <link rel="stylesheet" type="text/css" href="bluequad.css" media="screen">
 <link rel="stylesheet" type="text/css" href="bluequad-print.css" media="print">
@@ -17,7 +16,7 @@ ul li { padding-bottom: 0.3em; }
 <a href="http://luajit.org"><span>Lua<span id="logo">JIT</span></span></a>
 </div>
 <div id="head">
-<h1>Status &amp; Roadmap</h1>
+<h1>Status</h1>
 </div>
 <div id="nav">
 <ul><li>
@@ -89,12 +88,6 @@ hooks for non-Lua functions) and shows slightly different behavior
 in LuaJIT (no per-coroutine hooks, no tail call counting).
 </li>
 <li>
-Some checks are missing in the JIT-compiled code for obscure situations
-with <b>open upvalues aliasing</b> one of the SSA slots later on (or
-vice versa). Bonus points, if you can find a real world test case for
-this.
-</li>
-<li>
 Currently some <b>out-of-memory</b> errors from <b>on-trace code</b> are not
 handled correctly. The error may fall through an on-trace
 <tt>pcall</tt> or it may be passed on to the function set with
@@ -102,20 +95,11 @@ handled correctly. The error may fall through an on-trace
 garbage collector.
 </li>
 </ul>
-
-<h2>Roadmap</h2>
-<p>
-Please refer to the
-<a href="http://www.freelists.org/post/luajit/LuaJIT-Roadmap-20122013"><span class="ext">&raquo;</span>&nbsp;LuaJIT Roadmap 2012/2013</a> and an
-<a href="http://www.freelists.org/post/luajit/LuaJIT-Roadmap-20122013-UPDATE"><span class="ext">&raquo;</span>&nbsp;update on release planning</a> for details.
-</p>
-<p>
-</p>
 <br class="flush">
 </div>
 <div id="foot">
 <hr class="hide">
-Copyright &copy; 2005-2014 Mike Pall
+Copyright &copy; 2005-2018
 <span class="noprint">
 &middot;
 <a href="contact.html">Contact</a>

@@ -1,7 +1,7 @@
 ----------------------------------------------------------------------------
 -- LuaJIT module to save/list bytecode.
 --
--- Copyright (C) 2005-2014 Mike Pall. All rights reserved.
+-- Copyright (C) 2005-2017 Mike Pall. All rights reserved.
 -- Released under the MIT license. See Copyright Notice in luajit.h
 ----------------------------------------------------------------------------
 --
@@ -11,7 +11,7 @@
 ------------------------------------------------------------------------------
 
 local jit = require("jit")
-assert(jit.version_num == 20003, "LuaJIT core/library version mismatch")
+assert(jit.version_num == 20005, "LuaJIT core/library version mismatch")
 local bit = require("bit")
 
 -- Symbol name prefix for LuaJIT bytecode.
@@ -69,7 +69,7 @@ local map_arch = {
 
 local map_os = {
   linux = true, windows = true, osx = true, freebsd = true, netbsd = true,
-  openbsd = true, solaris = true,
+  openbsd = true, dragonfly = true, solaris = true,
 }
 
 local function checkarg(str, map, err)
@@ -239,7 +239,7 @@ typedef struct {
   hdr.type = f16(1)
   hdr.machine = f16(({ x86=3, x64=62, arm=40, ppc=20, ppcspe=20, mips=8, mipsel=8 })[ctx.arch])
   if ctx.arch == "mips" or ctx.arch == "mipsel" then
-    hdr.flags = 0x50001006
+    hdr.flags = f32(0x50001006)
   end
   hdr.version = f32(1)
   hdr.shofs = fofs(ffi.offsetof(o, "sect"))
@@ -275,7 +275,7 @@ typedef struct {
   o.sect[2].size = fofs(ofs)
   o.sect[3].type = f32(3) -- .strtab
   o.sect[3].ofs = fofs(sofs + ofs)
-  o.sect[3].size = fofs(#symname+1)
+  o.sect[3].size = fofs(#symname+2)
   ffi.copy(o.space+ofs+1, symname)
   ofs = ofs + #symname + 2
   o.sect[4].type = f32(1) -- .rodata

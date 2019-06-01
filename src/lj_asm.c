@@ -1,6 +1,6 @@
 /*
 ** IR assembler (SSA IR -> machine code).
-** Copyright (C) 2005-2014 Mike Pall. See Copyright Notice in luajit.h
+** Copyright (C) 2005-2017 Mike Pall. See Copyright Notice in luajit.h
 */
 
 #define lj_asm_c
@@ -353,6 +353,7 @@ static Reg ra_rematk(ASMState *as, IRRef ref)
 static int32_t ra_spill(ASMState *as, IRIns *ir)
 {
   int32_t slot = ir->s;
+  lua_assert(ir >= as->ir + REF_TRUE);
   if (!ra_hasspill(slot)) {
     if (irt_is64(ir->t)) {
       slot = as->evenspill;
@@ -1372,6 +1373,11 @@ static void asm_head_side(ASMState *as)
   int pass3 = 0;
   IRRef i;
 
+  if (as->snapno && as->topslot > as->parent->topslot) {
+    /* Force snap #0 alloc to prevent register overwrite in stack check. */
+    as->snapno = 0;
+    asm_snap_alloc(as);
+  }
   allow = asm_head_side_base(as, irp, allow);
 
   /* Scan all parent SLOADs and collect register dependencies. */
@@ -1719,6 +1725,7 @@ static void asm_setup_regsp(ASMState *as)
     case IR_SNEW: case IR_XSNEW: case IR_NEWREF:
       if (REGARG_NUMGPR < 3 && as->evenspill < 3)
 	as->evenspill = 3;  /* lj_str_new and lj_tab_newkey need 3 args. */
+      /* fallthrough */
     case IR_TNEW: case IR_TDUP: case IR_CNEW: case IR_CNEWI: case IR_TOSTR:
       ir->prev = REGSP_HINT(RID_RET);
       if (inloop)
@@ -1744,7 +1751,7 @@ static void asm_setup_regsp(ASMState *as)
 #endif
 	continue;
       }
-      /* fallthrough for integer POW */
+      /* fallthrough */ /* for integer POW */
     case IR_DIV: case IR_MOD:
       if (!irt_isnum(ir->t)) {
 	ir->prev = REGSP_HINT(RID_RET);
